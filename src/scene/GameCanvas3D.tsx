@@ -5,14 +5,21 @@ import React, {
   useRef,
   useState,
 } from 'react';
-import { ContactShadows, Html, MapControls } from '@react-three/drei';
-import { Canvas, ThreeEvent, useFrame } from '@react-three/fiber';
+import { ContactShadows, Html, MapControls, Sparkles } from '@react-three/drei';
+import { Canvas, ThreeEvent, useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import {
   BUILDING_CONFIGS,
+  CELL_SIZE,
   ENEMY_CONFIGS,
   KEEP_COORD,
+  KEEP_FOOTPRINT,
   TOWER_CONFIGS,
+  getBuildableConfig,
+  getFootprintCenter,
   isTowerId,
 } from '../game/config';
 import { GameEngine } from '../game/engine/GameEngine';
@@ -29,6 +36,9 @@ import { IslandGrid3D } from './IslandGrid3D';
 import { EnemyModelWrapper, KeepModel3D, ModelWrapper } from './ModelWrapper';
 import { ToonRoundedBox, gridToWorld } from './ToonMaterial';
 
+const ENEMY_BODY_LIFT = 0.1;
+const GROUND_MARKER_HEIGHT = 0.055;
+
 interface GameCanvas3DProps {
   engine: GameEngine;
   entities: PlacedEntity[];
@@ -41,52 +51,61 @@ interface GameCanvas3DProps {
   onHudSync: () => void;
 }
 
-const WoodenScaffolding3D: React.FC = () => {
+const WoodenScaffolding3D: React.FC<{ width: number; depth: number }> = ({
+  width,
+  depth,
+}) => {
+  const frameWidth = Math.max(0.28, width * CELL_SIZE - 0.12);
+  const frameDepth = Math.max(0.28, depth * CELL_SIZE - 0.12);
+  const height = Math.max(0.8, Math.min(1.5, Math.max(width, depth) * CELL_SIZE));
+  const halfWidth = frameWidth * 0.5;
+  const halfDepth = frameDepth * 0.5;
+
   return (
     <group>
       {[
-        [-0.36, -0.36],
-        [0.36, -0.36],
-        [-0.36, 0.36],
-        [0.36, 0.36],
+        [-halfWidth, -halfDepth],
+        [halfWidth, -halfDepth],
+        [-halfWidth, halfDepth],
+        [halfWidth, halfDepth],
       ].map(([x, z], idx) => (
         <ToonRoundedBox
           key={idx}
-          args={[0.06, 1.0, 0.06]}
+          args={[0.06, height, 0.06]}
           radius={0.018}
           color="#9c6d3b"
-          position={[x, 0.5, z]}
+          position={[x, height * 0.5, z]}
           outlineThickness={0.015}
         />
       ))}
-      {[0.32, 0.72].map((y, idx) => (
+      {[height * 0.35, height * 0.72].map((y, idx) => (
         <group key={idx} position={[0, y, 0]}>
           <ToonRoundedBox
-            args={[0.76, 0.05, 0.05]}
+            args={[frameWidth, 0.05, 0.05]}
             radius={0.015}
             color="#7a5832"
-            position={[0, 0, 0.36]}
+            position={[0, 0, halfDepth]}
             outlineThickness={0.012}
           />
           <ToonRoundedBox
-            args={[0.76, 0.05, 0.05]}
+            args={[frameWidth, 0.05, 0.05]}
             radius={0.015}
             color="#7a5832"
-            position={[0, 0, -0.36]}
+            position={[0, 0, -halfDepth]}
             outlineThickness={0.012}
           />
           <ToonRoundedBox
-            args={[0.05, 0.05, 0.76]}
+            args={[0.05, 0.05, frameDepth]}
             radius={0.015}
             color="#7a5832"
-            position={[-0.36, 0, 0]}
+            position={[-halfWidth, 0, 0]}
             outlineThickness={0.012}
           />
           <ToonRoundedBox
-            args={[0.05, 0.05, 0.76]}
+            args={[0.05, 0.05, frameDepth]}
             radius={0.015}
             color="#7a5832"
-            position={[0.36, 0, 0]}
+            position={[halfWidth, 0, 0]}
             outlineThickness={0.012}
           />
         </group>
@@ -220,7 +239,10 @@ const PlacedStructureNode3D: React.FC<PlacedStructureNode3DProps> = ({
     springGroupRef.current.scale.setScalar(springScaleRef.current);
   });
 
-  const pos = gridToWorld(entity.col, entity.row, 0.01);
+  const config = getBuildableConfig(entity.configId);
+  const footprint = config.footprint;
+  const center = getFootprintCenter(entity.col, entity.row, footprint);
+  const pos = gridToWorld(center.col, center.row, 0.01);
   const modelPath = isTowerId(entity.configId)
     ? TOWER_CONFIGS[entity.configId].modelPath
     : BUILDING_CONFIGS[entity.configId].modelPath;
@@ -239,7 +261,13 @@ const PlacedStructureNode3D: React.FC<PlacedStructureNode3DProps> = ({
     >
       {isSelected && (
         <mesh position={[0, 0.02, 0]} rotation={[-Math.PI * 0.5, 0, 0]}>
-          <ringGeometry args={[0.45, 0.55, 32]} />
+          <ringGeometry
+            args={[
+              Math.max(footprint.width, footprint.height) * CELL_SIZE * 0.52,
+              Math.max(footprint.width, footprint.height) * CELL_SIZE * 0.58,
+              48,
+            ]}
+          />
           <meshBasicMaterial color="#f4c76b" />
         </mesh>
       )}
@@ -253,7 +281,9 @@ const PlacedStructureNode3D: React.FC<PlacedStructureNode3DProps> = ({
           entityId={entity.id}
           phaseOffset={entity.col + entity.row}
         />
-        {isUpgrading && <WoodenScaffolding3D />}
+        {isUpgrading && (
+          <WoodenScaffolding3D width={footprint.width} depth={footprint.height} />
+        )}
       </group>
 
       <EntityStatusHtml entity={entity} nowMs={nowMs} portal={htmlPortalRef} />
@@ -350,7 +380,7 @@ const EnemyNode3D: React.FC<{ engine: GameEngine; enemySnapshot: EnemyInstance }
     const nowMs = Date.now();
     const hop = Math.abs(Math.sin(live.totalDistanceTraveled * 5.2)) * 0.13;
     const [tx, , tz] = gridToWorld(live.col, live.row, 0);
-    const ty = -0.04 + hop;
+    const ty = hop;
 
     if (!smoothPosRef.current) {
       smoothPosRef.current = { x: tx, y: ty, z: tz };
@@ -362,9 +392,12 @@ const EnemyNode3D: React.FC<{ engine: GameEngine; enemySnapshot: EnemyInstance }
 
     groupRef.current.position.set(
       smoothPosRef.current.x,
-      smoothPosRef.current.y,
+      0,
       smoothPosRef.current.z,
     );
+    if (bodyRef.current) {
+      bodyRef.current.position.y = ENEMY_BODY_LIFT + smoothPosRef.current.y;
+    }
 
     if (prevPosRef.current && bodyRef.current) {
       const dx = tx - prevPosRef.current.x;
@@ -408,13 +441,16 @@ const EnemyNode3D: React.FC<{ engine: GameEngine; enemySnapshot: EnemyInstance }
     }
   });
 
-  const initPos = gridToWorld(enemySnapshot.col, enemySnapshot.row, -0.04);
+  const initPos = gridToWorld(enemySnapshot.col, enemySnapshot.row, 0);
   const barWidth = cfg.isBoss ? 0.85 : 0.46;
 
   return (
     <group ref={groupRef} position={initPos}>
       {/* Ground shadow disc */}
-      <mesh position={[0, 0.015, 0]} rotation={[-Math.PI * 0.5, 0, 0]}>
+      <mesh
+        position={[0, GROUND_MARKER_HEIGHT, 0]}
+        rotation={[-Math.PI * 0.5, 0, 0]}
+      >
         <circleGeometry args={[0.24 * cfg.scale, 24]} />
         <meshBasicMaterial
           color={statusState.chilled ? '#5ba4b5' : '#2b2623'}
@@ -458,6 +494,7 @@ const ProjectileNode3D: React.FC<{
   engine: GameEngine;
   projSnapshot: ProjectileInstance;
 }> = ({ engine, projSnapshot }) => {
+  const airGroupRef = useRef<THREE.Group>(null);
   const airRef = useRef<THREE.Mesh>(null);
   const shadowRef = useRef<THREE.Mesh>(null);
   const smoothPosRef = useRef<THREE.Vector3 | null>(null);
@@ -466,7 +503,7 @@ const ProjectileNode3D: React.FC<{
 
   useFrame((_, delta) => {
     const live = engine.getProjectiles().find((p) => p.id === projSnapshot.id);
-    if (!live || !airRef.current || !shadowRef.current) return;
+    if (!live || !airGroupRef.current || !airRef.current || !shadowRef.current) return;
 
     const t = Math.min(1, Math.max(0, live.progress));
     const curCol = live.startCol + (live.targetCol - live.startCol) * t;
@@ -482,8 +519,12 @@ const ProjectileNode3D: React.FC<{
       smoothPosRef.current.z = THREE.MathUtils.damp(smoothPosRef.current.z, tz, 28, delta);
     }
 
-    airRef.current.position.copy(smoothPosRef.current);
-    shadowRef.current.position.set(smoothPosRef.current.x, 0.02, smoothPosRef.current.z);
+    airGroupRef.current.position.copy(smoothPosRef.current);
+    shadowRef.current.position.set(
+      smoothPosRef.current.x,
+      GROUND_MARKER_HEIGHT,
+      smoothPosRef.current.z,
+    );
 
     if (live.type === 'arrow') {
       const t2 = Math.min(1, t + 0.04);
@@ -497,6 +538,9 @@ const ProjectileNode3D: React.FC<{
         const targetQuat = new THREE.Quaternion().setFromUnitVectors(upVec, dirVec);
         airRef.current.quaternion.slerp(targetQuat, 1 - Math.exp(-24 * delta));
       }
+    } else {
+      airRef.current.rotation.x += delta * 4.5;
+      airRef.current.rotation.z += delta * 3.2;
     }
   });
 
@@ -506,7 +550,7 @@ const ProjectileNode3D: React.FC<{
     <group>
       <mesh
         ref={shadowRef}
-        position={[initPos[0], 0.02, initPos[2]]}
+        position={[initPos[0], GROUND_MARKER_HEIGHT, initPos[2]]}
         rotation={[-Math.PI * 0.5, 0, 0]}
       >
         <circleGeometry
@@ -514,18 +558,30 @@ const ProjectileNode3D: React.FC<{
         />
         <meshBasicMaterial color="#2b2623" transparent opacity={0.25} />
       </mesh>
-      <mesh ref={airRef} position={initPos} castShadow>
-        {projSnapshot.type === 'cannonball' ? (
-          <sphereGeometry args={[0.14, 24, 18]} />
-        ) : (
-          <coneGeometry args={[0.045, 0.34, 24]} />
-        )}
-        <meshStandardMaterial
-          color={projSnapshot.type === 'cannonball' ? '#3d4349' : '#f4e4c1'}
-          roughness={0.45}
-          metalness={projSnapshot.type === 'cannonball' ? 0.3 : 0.05}
+      <group ref={airGroupRef} position={initPos}>
+        <mesh ref={airRef} castShadow>
+          {projSnapshot.type === 'cannonball' ? (
+            <sphereGeometry args={[0.14, 24, 18]} />
+          ) : (
+            <coneGeometry args={[0.045, 0.34, 24]} />
+          )}
+          <meshStandardMaterial
+            color={projSnapshot.type === 'cannonball' ? '#3d4349' : '#f4e4c1'}
+            emissive={projSnapshot.type === 'cannonball' ? '#a84e24' : '#b58c4f'}
+            emissiveIntensity={projSnapshot.type === 'cannonball' ? 1.15 : 0.35}
+            roughness={0.45}
+            metalness={projSnapshot.type === 'cannonball' ? 0.3 : 0.05}
+          />
+        </mesh>
+        <Sparkles
+          count={projSnapshot.type === 'cannonball' ? 10 : 5}
+          scale={projSnapshot.type === 'cannonball' ? 0.45 : [0.2, 0.5, 0.2]}
+          size={projSnapshot.type === 'cannonball' ? 3.2 : 1.8}
+          speed={2.2}
+          color={projSnapshot.type === 'cannonball' ? '#f28b45' : '#f4e4c1'}
+          opacity={0.82}
         />
-      </mesh>
+      </group>
     </group>
   );
 };
@@ -544,7 +600,7 @@ const ParticleNode3D: React.FC<{
     const [wx, , wz] = gridToWorld(live.col, live.row, 0);
 
     if (live.kind === 'frost_ring') {
-      meshRef.current.position.set(wx, 0.04, wz);
+      meshRef.current.position.set(wx, GROUND_MARKER_HEIGHT, wz);
       meshRef.current.scale.setScalar(live.radius);
       const mat = meshRef.current.material as THREE.MeshBasicMaterial;
       mat.opacity = lifeRatio * 0.75;
@@ -558,7 +614,7 @@ const ParticleNode3D: React.FC<{
     particleSnapshot.col,
     particleSnapshot.row,
     particleSnapshot.kind === 'frost_ring'
-      ? 0.04
+      ? GROUND_MARKER_HEIGHT
       : particleSnapshot.z * 0.8 + 0.08,
   );
 
@@ -722,7 +778,12 @@ const SimulationScene: React.FC<SimulationSceneProps> = ({
   );
 
   const nowMs = Date.now();
-  const keepPos = gridToWorld(KEEP_COORD.col, KEEP_COORD.row, 0.01);
+  const keepCenter = getFootprintCenter(
+    KEEP_COORD.col,
+    KEEP_COORD.row,
+    KEEP_FOOTPRINT,
+  );
+  const keepPos = gridToWorld(keepCenter.col, keepCenter.row, 0.01);
 
   return (
     <group ref={shakeGroupRef}>
@@ -739,12 +800,12 @@ const SimulationScene: React.FC<SimulationSceneProps> = ({
 
       {/* ContactShadows grounding towers, keep, and raiders cleanly onto island tiles */}
       <ContactShadows
-        position={[0, 0.015, 0]}
-        opacity={0.45}
+        position={[0, 0.005, 0]}
+        opacity={0.25}
         color="#1e1916"
         scale={20}
         blur={2}
-        far={3}
+        far={2.5}
         resolution={512}
       />
 
@@ -756,7 +817,7 @@ const SimulationScene: React.FC<SimulationSceneProps> = ({
           onTileClick(KEEP_COORD.col, KEEP_COORD.row);
         }}
       >
-        <KeepModel3D />
+        <KeepModel3D modelPath="/models/keep.glb" />
         <Html
           center
           portal={htmlPortalRef}
@@ -816,6 +877,35 @@ const SimulationScene: React.FC<SimulationSceneProps> = ({
   );
 };
 
+const BloomEffects: React.FC = () => {
+  const { camera, gl, scene, size } = useThree();
+  const composer = useMemo(() => new EffectComposer(gl), [gl]);
+  const renderPass = useMemo(() => new RenderPass(scene, camera), [scene, camera]);
+  const bloomPass = useMemo(
+    () => new UnrealBloomPass(new THREE.Vector2(1, 1), 0.42, 0.55, 0.82),
+    [],
+  );
+
+  useEffect(() => {
+    composer.addPass(renderPass);
+    composer.addPass(bloomPass);
+    return () => {
+      composer.removePass(renderPass);
+      composer.removePass(bloomPass);
+    };
+  }, [bloomPass, composer, renderPass]);
+
+  useEffect(() => () => composer.dispose(), [composer]);
+
+  useEffect(() => {
+    composer.setPixelRatio(gl.getPixelRatio());
+    composer.setSize(size.width, size.height);
+  }, [composer, gl, size.height, size.width]);
+
+  useFrame((_, delta) => composer.render(delta), 1);
+  return null;
+};
+
 export const GameCanvas3D: React.FC<GameCanvas3DProps> = ({
   engine,
   entities,
@@ -850,7 +940,7 @@ export const GameCanvas3D: React.FC<GameCanvas3DProps> = ({
     <div ref={containerRef} className="relative h-full w-full">
       <Canvas
         dpr={[1, 2]}
-        shadows
+        shadows="variance"
         orthographic
         gl={{
           antialias: true,
@@ -879,14 +969,15 @@ export const GameCanvas3D: React.FC<GameCanvas3DProps> = ({
           color="#fff2d6"
           castShadow
           shadow-mapSize={[2048, 2048]}
-          shadow-camera-left={-11}
-          shadow-camera-right={11}
-          shadow-camera-top={11}
-          shadow-camera-bottom={-11}
-          shadow-camera-near={1}
-          shadow-camera-far={55}
-          shadow-normalBias={0.02}
-          shadow-bias={-0.0003}
+          shadow-camera-left={-9.5}
+          shadow-camera-right={9.5}
+          shadow-camera-top={9.5}
+          shadow-camera-bottom={-9.5}
+          shadow-camera-near={0.5}
+          shadow-camera-far={40}
+          shadow-radius={3}
+          shadow-normalBias={0.03}
+          shadow-bias={0.0001}
         />
 
         <MapControls
@@ -910,6 +1001,7 @@ export const GameCanvas3D: React.FC<GameCanvas3DProps> = ({
           onTileClick={onTileClick}
           onHudSync={onHudSync}
         />
+        <BloomEffects />
       </Canvas>
     </div>
   );

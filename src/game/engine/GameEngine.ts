@@ -1,6 +1,9 @@
 import {
   BUILDING_CONFIGS,
+  CELL_SIZE,
   ENEMY_CONFIGS,
+  getBuildableFootprint,
+  getFootprintCenter,
   PATH_WAYPOINTS,
   TOWER_CONFIGS,
   createDefaultDailyQuests,
@@ -111,9 +114,22 @@ export class GameEngine {
         return null;
       }
       const fallback = createInitialGameState(Date.now());
+      const isLegacyLayout = (parsed.version ?? 1) < 2;
+      const entities = parsed.entities.map((entity) => {
+        if (!isLegacyLayout) return entity;
+        const footprint = getBuildableFootprint(entity.configId);
+        return {
+          ...entity,
+          col: entity.col * 2 - (footprint.width % 2),
+          row: entity.row * 2 - (footprint.height % 2),
+        };
+      });
+
       return {
         ...fallback,
         ...parsed,
+        version: 2,
+        entities,
         resources: {
           gold: typeof parsed.resources?.gold === 'number' ? parsed.resources.gold : fallback.resources.gold,
           aether:
@@ -209,17 +225,37 @@ export class GameEngine {
   }
 
   public getEntityAt(col: number, row: number): PlacedEntity | undefined {
-    return this.state.entities.find((e) => e.col === col && e.row === row);
+    return this.state.entities.find((entity) => {
+      const footprint = getBuildableFootprint(entity.configId);
+      return (
+        col >= entity.col &&
+        col < entity.col + footprint.width &&
+        row >= entity.row &&
+        row < entity.row + footprint.height
+      );
+    });
   }
 
   public getEntityById(id: string): PlacedEntity | undefined {
     return this.state.entities.find((e) => e.id === id);
   }
 
-  public canPlaceAt(col: number, row: number): boolean {
-    if (!isValidGridCoord(col, row)) return false;
-    if (getTileType(col, row) !== 'grass') return false;
-    return !this.getEntityAt(col, row);
+  public canPlaceAt(col: number, row: number, configId: BuildableId): boolean {
+    const footprint = getBuildableFootprint(configId);
+    for (let x = 0; x < footprint.width; x += 1) {
+      for (let y = 0; y < footprint.height; y += 1) {
+        const cellCol = col + x;
+        const cellRow = row + y;
+        if (
+          !isValidGridCoord(cellCol, cellRow) ||
+          getTileType(cellCol, cellRow) !== 'grass' ||
+          this.getEntityAt(cellCol, cellRow)
+        ) {
+          return false;
+        }
+      }
+    }
+    return true;
   }
 
   public placeEntity(
@@ -228,8 +264,8 @@ export class GameEngine {
     row: number,
   ): { ok: boolean; error?: string; entity?: PlacedEntity } {
     this.sound.unlock();
-    if (!this.canPlaceAt(col, row)) {
-      return { ok: false, error: 'Must build on an empty grass tile.' };
+    if (!this.canPlaceAt(col, row, configId)) {
+      return { ok: false, error: 'The full footprint must fit on empty ground.' };
     }
 
     const cfg = getBuildableConfig(configId);
@@ -264,8 +300,9 @@ export class GameEngine {
 
     this.state.entities.push(entity);
     this.sound.playStoneClack();
-    this.spawnDustBurst(col, row, 7, '#d8c8a8');
-    this.addFloatingText(`Built ${cfg.name}`, col, row, 1.0, '#f4e4c1');
+    const center = getFootprintCenter(col, row, cfg.footprint);
+    this.spawnDustBurst(center.col, center.row, 7, '#d8c8a8');
+    this.addFloatingText(`Built ${cfg.name}`, center.col, center.row, 1.0, '#f4e4c1');
     this.saveToStorage();
 
     return { ok: true, entity };
@@ -674,7 +711,7 @@ export class GameEngine {
     for (const enemy of this.enemies) {
       const cfg = ENEMY_CONFIGS[enemy.configId];
       const slowMultiplier = enemy.slowUntilMs > nowMs ? 1 - enemy.slowFactor : 1;
-      const stepDist = cfg.speedTilesPerSec * slowMultiplier * dt;
+      const stepDist = (cfg.speedTilesPerSec * slowMultiplier * dt) / CELL_SIZE;
 
       enemy.progressOnSegment += stepDist;
       enemy.totalDistanceTraveled += stepDist;
@@ -755,14 +792,15 @@ export class GameEngine {
 
       if (nextCooldown > 0) continue;
 
-      const target = this.selectTarget(entity, stats.range);
+      const target = this.selectTarget(entity, stats.range / CELL_SIZE);
       if (!target) continue;
 
       this.towerCooldowns.set(entity.id, 1 / stats.fireRate);
       this.visualState.towerRecoilMap[entity.id] = 1;
+      const center = getFootprintCenter(entity.col, entity.row, cfg.footprint);
       this.visualState.towerAngleMap[entity.id] = Math.atan2(
-        target.row - entity.row,
-        target.col - entity.col,
+        target.row - center.row,
+        target.col - center.col,
       );
 
       if (cfg.projectileType === 'frost_nova') {
@@ -775,9 +813,11 @@ export class GameEngine {
 
   private selectTarget(entity: PlacedEntity, range: number): EnemyInstance | null {
     const inRange: { enemy: EnemyInstance; dist: number }[] = [];
+    const cfg = getBuildableConfig(entity.configId);
+    const center = getFootprintCenter(entity.col, entity.row, cfg.footprint);
     for (const enemy of this.enemies) {
-      const dx = enemy.col - entity.col;
-      const dy = enemy.row - entity.row;
+      const dx = enemy.col - center.col;
+      const dy = enemy.row - center.row;
       const dist = Math.hypot(dx, dy);
       if (dist <= range) {
         inRange.push({ enemy, dist });
@@ -810,11 +850,16 @@ export class GameEngine {
     nowMs: number,
   ): void {
     this.sound.playFrostPulse();
+    const center = getFootprintCenter(
+      entity.col,
+      entity.row,
+      TOWER_CONFIGS.frost_obelisk.footprint,
+    );
     this.particles.push({
       id: this.nextId('frost_ring'),
       kind: 'frost_ring',
-      col: entity.col,
-      row: entity.row,
+      col: center.col,
+      row: center.row,
       z: 0.08,
       vx: 0,
       vy: 0,
@@ -830,8 +875,8 @@ export class GameEngine {
     const slowDurationMs = stats.slowDurationMs ?? 2400;
 
     for (const enemy of [...this.enemies]) {
-      const dist = Math.hypot(enemy.col - entity.col, enemy.row - entity.row);
-      if (dist <= stats.range) {
+      const dist = Math.hypot(enemy.col - center.col, enemy.row - center.row);
+      if (dist <= stats.range / CELL_SIZE) {
         enemy.slowFactor = Math.max(enemy.slowFactor, slowFactor);
         enemy.slowUntilMs = Math.max(enemy.slowUntilMs, nowMs + slowDurationMs);
         this.applyDamageToEnemy(enemy, stats.damage, entity, nowMs);
@@ -848,19 +893,24 @@ export class GameEngine {
     },
     target: EnemyInstance,
   ): void {
+    const center = getFootprintCenter(
+      entity.col,
+      entity.row,
+      getBuildableConfig(entity.configId).footprint,
+    );
     if (type === 'arrow') {
       this.sound.playBowTwang();
     } else {
       this.sound.playCannonThud();
-      this.spawnDustBurst(entity.col, entity.row, 4, '#ded7ca');
+      this.spawnDustBurst(center.col, center.row, 4, '#ded7ca');
     }
 
     this.projectiles.push({
       id: this.nextId(type),
       sourceEntityId: entity.id,
       type,
-      startCol: entity.col,
-      startRow: entity.row,
+      startCol: center.col,
+      startRow: center.row,
       targetCol: target.col,
       targetRow: target.row,
       targetEnemyId: target.id,
@@ -868,7 +918,7 @@ export class GameEngine {
       durationSec: type === 'arrow' ? 0.28 : 0.46,
       arcHeight: type === 'arrow' ? 0.95 : 1.55,
       damage: stats.damage,
-      splashRadius: stats.splashRadius ?? 0,
+      splashRadius: (stats.splashRadius ?? 0) / CELL_SIZE,
       slowFactor: 0,
       slowDurationMs: 0,
     });
@@ -907,7 +957,7 @@ export class GameEngine {
       for (const enemy of [...this.enemies]) {
         const dist = Math.hypot(enemy.col - proj.targetCol, enemy.row - proj.targetRow);
         if (dist <= proj.splashRadius) {
-          const falloff = dist < 0.45 ? 1 : 0.78;
+          const falloff = dist < 0.45 / CELL_SIZE ? 1 : 0.78;
           this.applyDamageToEnemy(
             enemy,
             Math.round(proj.damage * falloff),

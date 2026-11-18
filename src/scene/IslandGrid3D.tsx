@@ -1,11 +1,15 @@
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo } from 'react';
 import { ThreeEvent } from '@react-three/fiber';
+import * as THREE from 'three';
 import {
+  CELL_SIZE,
   GRID_COLS,
   GRID_ROWS,
   PATH_WAYPOINTS,
+  PATH_WIDTH,
   TOWER_CONFIGS,
-  getTileType,
+  getBuildableFootprint,
+  getFootprintCenter,
   isTowerId,
 } from '../game/config';
 import { GameEngine } from '../game/engine/GameEngine';
@@ -21,7 +25,125 @@ interface IslandGrid3DProps {
   onTileClick: (col: number, row: number) => void;
 }
 
-const GRASS_PALETTE = ['#4d7c3f', '#467339', '#538444', '#49763b', '#508041'];
+const BOARD_WIDTH = GRID_COLS * CELL_SIZE;
+const BOARD_DEPTH = GRID_ROWS * CELL_SIZE;
+
+function createGroundTexture(): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 512;
+  canvas.height = 512;
+  const context = canvas.getContext('2d');
+
+  if (context) {
+    context.fillStyle = '#6d8b4e';
+    context.fillRect(0, 0, canvas.width, canvas.height);
+
+    let seed = 39217;
+    const random = () => {
+      seed = (seed * 1664525 + 1013904223) % 4294967296;
+      return seed / 4294967296;
+    };
+
+    for (let i = 0; i < 2600; i += 1) {
+      const shade = random() > 0.53 ? '#a7bd79' : '#405d34';
+      context.globalAlpha = 0.08 + random() * 0.15;
+      context.fillStyle = shade;
+      context.beginPath();
+      context.ellipse(
+        random() * canvas.width,
+        random() * canvas.height,
+        1 + random() * 3,
+        1 + random() * 2,
+        random() * Math.PI,
+        0,
+        Math.PI * 2,
+      );
+      context.fill();
+    }
+
+    context.globalAlpha = 1;
+  }
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  texture.repeat.set(5, 4);
+  return texture;
+}
+
+function createRibbonGeometry(
+  points: THREE.Vector3[],
+  width: number,
+  elevation: number,
+): THREE.BufferGeometry {
+  const vertices: number[] = [];
+  const normals: number[] = [];
+  const uvs: number[] = [];
+  const indices: number[] = [];
+
+  points.forEach((point, index) => {
+    const previous = points[Math.max(0, index - 1)]!;
+    const next = points[Math.min(points.length - 1, index + 1)]!;
+    const tangent = new THREE.Vector3().subVectors(next, previous).normalize();
+    const perpendicular = new THREE.Vector3(-tangent.z, 0, tangent.x);
+
+    if (index > 0 && index < points.length - 1) {
+      const incoming = new THREE.Vector3().subVectors(point, previous).normalize();
+      const outgoing = new THREE.Vector3().subVectors(next, point).normalize();
+      const incomingNormal = new THREE.Vector3(-incoming.z, 0, incoming.x);
+      const outgoingNormal = new THREE.Vector3(-outgoing.z, 0, outgoing.x);
+      perpendicular.copy(incomingNormal.add(outgoingNormal).normalize());
+      const scale = Math.min(
+        2,
+        (width * 0.5) / Math.max(0.35, perpendicular.dot(outgoingNormal)),
+      );
+      perpendicular.multiplyScalar(scale);
+    } else {
+      perpendicular.multiplyScalar(width * 0.5);
+    }
+
+    vertices.push(
+      point.x + perpendicular.x,
+      elevation,
+      point.z + perpendicular.z,
+      point.x - perpendicular.x,
+      elevation,
+      point.z - perpendicular.z,
+    );
+    normals.push(0, 1, 0, 0, 1, 0);
+    const v = index / Math.max(1, points.length - 1);
+    uvs.push(0, v, 1, v);
+
+    if (index < points.length - 1) {
+      const start = index * 2;
+      indices.push(start, start + 2, start + 1, start + 1, start + 2, start + 3);
+    }
+  });
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+  geometry.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
+  geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  geometry.setIndex(indices);
+  return geometry;
+}
+
+function createPlacementGrid(): THREE.BufferGeometry {
+  const vertices: number[] = [];
+  for (let col = 0; col <= GRID_COLS; col += 1) {
+    const x = -BOARD_WIDTH * 0.5 + col * CELL_SIZE;
+    vertices.push(x, 0.022, -BOARD_DEPTH * 0.5, x, 0.022, BOARD_DEPTH * 0.5);
+  }
+  for (let row = 0; row <= GRID_ROWS; row += 1) {
+    const z = -BOARD_DEPTH * 0.5 + row * CELL_SIZE;
+    vertices.push(-BOARD_WIDTH * 0.5, 0.022, z, BOARD_WIDTH * 0.5, 0.022, z);
+  }
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+  return geometry;
+}
 
 export const IslandGrid3D: React.FC<IslandGrid3DProps> = ({
   engine,
@@ -31,227 +153,191 @@ export const IslandGrid3D: React.FC<IslandGrid3DProps> = ({
   onHoverTile,
   onTileClick,
 }) => {
-  const tiles = useMemo(() => {
-    const list: {
-      col: number;
-      row: number;
-      type: 'grass' | 'path' | 'keep';
-      seed: number;
-    }[] = [];
-    for (let col = 0; col < GRID_COLS; col++) {
-      for (let row = 0; row < GRID_ROWS; row++) {
-        list.push({
-          col,
-          row,
-          type: getTileType(col, row),
-          seed: (col * 31 + row * 17) % 5,
-        });
-      }
-    }
-    return list;
-  }, []);
+  const grassTexture = useMemo(createGroundTexture, []);
+  const placementGrid = useMemo(createPlacementGrid, []);
+  const roadPoints = useMemo(
+    () => PATH_WAYPOINTS.map(({ col, row }) => new THREE.Vector3(...gridToWorld(col, row, 0))),
+    [],
+  );
+  const roadEdge = useMemo(
+    () => createRibbonGeometry(roadPoints, PATH_WIDTH + 0.16, 0.014),
+    [roadPoints],
+  );
+  const roadSurface = useMemo(
+    () => createRibbonGeometry(roadPoints, PATH_WIDTH, 0.03),
+    [roadPoints],
+  );
+
+  useEffect(
+    () => () => {
+      grassTexture.dispose();
+      placementGrid.dispose();
+      roadEdge.dispose();
+      roadSurface.dispose();
+    },
+    [grassTexture, placementGrid, roadEdge, roadSurface],
+  );
 
   const rangePreview = useMemo(() => {
-    if (selectedBuildId && isTowerId(selectedBuildId) && hoveredTile) {
-      if (engine.canPlaceAt(hoveredTile.col, hoveredTile.row)) {
-        const cfg = TOWER_CONFIGS[selectedBuildId];
-        return {
-          col: hoveredTile.col,
-          row: hoveredTile.row,
-          range: cfg.levels[0].range,
-          color: '#2b2623',
-          fillOpacity: 0.16,
-        };
-      }
+    if (
+      selectedBuildId &&
+      isTowerId(selectedBuildId) &&
+      hoveredTile &&
+      engine.canPlaceAt(hoveredTile.col, hoveredTile.row, selectedBuildId)
+    ) {
+      const cfg = TOWER_CONFIGS[selectedBuildId];
+      const center = getFootprintCenter(
+        hoveredTile.col,
+        hoveredTile.row,
+        cfg.footprint,
+      );
+      return {
+        ...center,
+        range: cfg.levels[0].range,
+        color: '#2b2623',
+        fillOpacity: 0.16,
+      };
     }
+
     if (selectedEntity && isTowerId(selectedEntity.configId)) {
       const cfg = TOWER_CONFIGS[selectedEntity.configId];
       const stats =
         cfg.levels[Math.min(selectedEntity.level - 1, cfg.levels.length - 1)];
+      const center = getFootprintCenter(
+        selectedEntity.col,
+        selectedEntity.row,
+        cfg.footprint,
+      );
       return {
-        col: selectedEntity.col,
-        row: selectedEntity.row,
+        ...center,
         range: stats.range,
         color: cfg.accentColor,
         fillOpacity: 0.18,
       };
     }
+
     return null;
   }, [engine, hoveredTile, selectedBuildId, selectedEntity]);
 
-  const startWp = PATH_WAYPOINTS[0];
-  const startPos = gridToWorld(startWp.col, startWp.row, 0);
+  const cellFromPoint = (point: THREE.Vector3): GridCoord => ({
+    col: Math.floor((point.x + BOARD_WIDTH * 0.5) / CELL_SIZE),
+    row: Math.floor((point.z + BOARD_DEPTH * 0.5) / CELL_SIZE),
+  });
 
-  const handleTileOver =
-    (col: number, row: number) => (e: ThreeEvent<PointerEvent>) => {
-      e.stopPropagation();
-      onHoverTile({ col, row });
-    };
+  const handleSurfaceOver = (event: ThreeEvent<PointerEvent>) => {
+    const coord = cellFromPoint(event.point);
+    if (coord.col >= 0 && coord.col < GRID_COLS && coord.row >= 0 && coord.row < GRID_ROWS) {
+      onHoverTile(coord);
+    } else {
+      onHoverTile(null);
+    }
+  };
 
-  const handleTileClick =
-    (col: number, row: number) => (e: ThreeEvent<MouseEvent>) => {
-      e.stopPropagation();
-      onTileClick(col, row);
-    };
+  const handleSurfaceClick = (event: ThreeEvent<MouseEvent>) => {
+    event.stopPropagation();
+    const coord = cellFromPoint(event.point);
+    onTileClick(coord.col, coord.row);
+  };
+
+  const start = PATH_WAYPOINTS[0]!;
+  const startPosition = gridToWorld(start.col, start.row, 0);
+  const selectedFootprint = selectedBuildId
+    ? getBuildableFootprint(selectedBuildId)
+    : null;
+  const canPlaceHovered =
+    Boolean(selectedBuildId && hoveredTile) &&
+    engine.canPlaceAt(hoveredTile!.col, hoveredTile!.row, selectedBuildId!);
 
   return (
     <group onPointerLeave={() => onHoverTile(null)}>
-      {/* Floating Slate Cliff Monolith Base */}
-      <group>
-        {/* Upper rocky collar flush with the 12x10 tiles */}
-        <ToonRoundedBox
-          args={[GRID_COLS + 0.04, 0.56, GRID_ROWS + 0.04]}
-          radius={0.14}
-          smoothness={4}
-          color="#363c42"
-          position={[0, -0.5, 0]}
+      <ToonRoundedBox
+        args={[BOARD_WIDTH + 0.04, 0.56, BOARD_DEPTH + 0.04]}
+        radius={0.14}
+        smoothness={4}
+        color="#363c42"
+        position={[0, -0.31, 0]}
+        outlineThickness={0.025}
+        castShadow={false}
+      />
+
+      <group scale={[1.095, 1, 0.912]}>
+        <ToonMesh
+          color="#2a2f35"
+          position={[0, -1.2, 0]}
+          rotation={[0, Math.PI * 0.25, 0]}
           outlineThickness={0.025}
-        />
-
-        {/* Mid tapered cliff stratum (flush 12.0 x 10.0 top) */}
-        <group scale={[1.095, 1, 0.912]}>
-          <ToonMesh
-            color="#2a2f35"
-            position={[0, -1.42, 0]}
-            rotation={[0, Math.PI * 0.25, 0]}
-            outlineThickness={0.025}
-          >
-            <cylinderGeometry args={[7.72, 5.4, 1.35, 4]} />
-          </ToonMesh>
-
-          {/* Tapered deep slate keel */}
-          <ToonMesh
-            color="#1f2328"
-            position={[0, -2.9, 0]}
-            rotation={[0, Math.PI * 0.25, 0]}
-            outlineThickness={0.025}
-          >
-            <cylinderGeometry args={[5.4, 1.35, 1.65, 4]} />
-          </ToonMesh>
-        </group>
-
-        {/* Soft ambient shadow disc beneath the floating island */}
-        <mesh position={[0, -4.15, 0]} rotation={[-Math.PI * 0.5, 0, 0]}>
-          <circleGeometry args={[5.8, 36]} />
-          <meshBasicMaterial color="#1e1916" transparent opacity={0.15} />
-        </mesh>
+        >
+          <cylinderGeometry args={[7.72, 5.4, 1.35, 4]} />
+        </ToonMesh>
+        <ToonMesh
+          color="#1f2328"
+          position={[0, -2.68, 0]}
+          rotation={[0, Math.PI * 0.25, 0]}
+          outlineThickness={0.025}
+        >
+          <cylinderGeometry args={[5.4, 1.35, 1.65, 4]} />
+        </ToonMesh>
       </group>
 
-      {/* 12x10 Interactive Rounded Grid Tiles */}
-      {tiles.map((tile) => {
-        const isHovered =
-          hoveredTile?.col === tile.col && hoveredTile?.row === tile.row;
+      <mesh position={[0, -3.93, 0]} rotation={[-Math.PI * 0.5, 0, 0]}>
+        <circleGeometry args={[5.8, 36]} />
+        <meshBasicMaterial color="#1e1916" transparent opacity={0.15} />
+      </mesh>
 
-        if (tile.type === 'path') {
-          const [wx, , wz] = gridToWorld(tile.col, tile.row, 0);
-          return (
-            <group key={`${tile.col}-${tile.row}`} position={[wx, 0, wz]}>
-              <ToonRoundedBox
-                args={[0.96, 0.18, 0.96]}
-                radius={0.07}
-                smoothness={4}
-                color={tile.seed % 2 === 0 ? '#d4a96a' : '#c89c5d'}
-                position={[0, -0.14, 0]}
-                outlineThickness={0.018}
-                onPointerOver={handleTileOver(tile.col, tile.row)}
-                onClick={handleTileClick(tile.col, tile.row)}
-              />
-              {isHovered && (
-                <mesh position={[0, -0.04, 0]} rotation={[-Math.PI * 0.5, 0, 0]}>
-                  <ringGeometry args={[0.34, 0.44, 24]} />
-                  <meshBasicMaterial
-                    color={selectedBuildId ? '#c94a38' : '#fff7dc'}
-                    transparent
-                    opacity={0.75}
-                  />
-                </mesh>
-              )}
-            </group>
-          );
-        }
+      <mesh
+        position={[0, -0.12, 0]}
+        receiveShadow
+        onPointerMove={handleSurfaceOver}
+        onClick={handleSurfaceClick}
+      >
+        <boxGeometry args={[BOARD_WIDTH, 0.24, BOARD_DEPTH]} />
+        <meshStandardMaterial map={grassTexture} roughness={0.95} />
+      </mesh>
 
-        if (tile.type === 'keep') {
-          const [wx, , wz] = gridToWorld(tile.col, tile.row, 0);
-          return (
-            <group key={`${tile.col}-${tile.row}`} position={[wx, 0, wz]}>
-              <ToonRoundedBox
-                args={[0.97, 0.24, 0.97]}
-                radius={0.08}
-                smoothness={4}
-                color="#b8a586"
-                position={[0, -0.11, 0]}
-                outlineThickness={0.02}
-                onPointerOver={handleTileOver(tile.col, tile.row)}
-                onClick={handleTileClick(tile.col, tile.row)}
-              />
-            </group>
-          );
-        }
+      <mesh geometry={roadEdge}>
+        <meshStandardMaterial color="#96764e" roughness={1} />
+      </mesh>
+      <mesh geometry={roadSurface} receiveShadow>
+        <meshStandardMaterial color="#c6a06a" roughness={1} />
+      </mesh>
 
-        // Rounded mossy sage grass tile
-        const [wx, , wz] = gridToWorld(tile.col, tile.row, 0);
-        const hasEntity = Boolean(engine.getEntityAt(tile.col, tile.row));
-        const canPlaceHere = selectedBuildId
-          ? engine.canPlaceAt(tile.col, tile.row)
-          : true;
+      {selectedBuildId && (
+        <lineSegments geometry={placementGrid} renderOrder={2}>
+          <lineBasicMaterial
+            color="#fff4d8"
+            transparent
+            opacity={0.24}
+            depthWrite={false}
+          />
+        </lineSegments>
+      )}
 
-        return (
-          <group key={`${tile.col}-${tile.row}`} position={[wx, 0, wz]}>
-            <ToonRoundedBox
-              args={[0.96, 0.24, 0.96]}
-              radius={0.08}
-              smoothness={4}
-              color={GRASS_PALETTE[tile.seed]}
-              position={[0, -0.11, 0]}
-              outlineThickness={0.018}
-              onPointerOver={handleTileOver(tile.col, tile.row)}
-              onClick={handleTileClick(tile.col, tile.row)}
-            />
+      {selectedBuildId && hoveredTile && selectedFootprint && (
+        <mesh
+          position={gridToWorld(
+            hoveredTile.col + (selectedFootprint.width - 1) * 0.5,
+            hoveredTile.row + (selectedFootprint.height - 1) * 0.5,
+            0.035,
+          )}
+          rotation={[-Math.PI * 0.5, 0, 0]}
+          renderOrder={3}
+        >
+          <planeGeometry
+            args={[
+              selectedFootprint.width * CELL_SIZE,
+              selectedFootprint.height * CELL_SIZE,
+            ]}
+          />
+          <meshBasicMaterial
+            color={canPlaceHovered ? '#b9e39c' : '#e66b57'}
+            transparent
+            opacity={0.34}
+            depthWrite={false}
+          />
+        </mesh>
+      )}
 
-            {/* Smooth decorative low-poly tufts & river stones on empty grass tiles */}
-            {!hasEntity && tile.seed === 1 && (
-              <ToonMesh
-                color="#335928"
-                position={[-0.22, 0.06, 0.18]}
-                outlineThickness={0.014}
-              >
-                <coneGeometry args={[0.07, 0.13, 24]} />
-              </ToonMesh>
-            )}
-            {!hasEntity && tile.seed === 4 && (
-              <ToonMesh
-                color="#6a727a"
-                position={[0.24, 0.04, -0.18]}
-                scale={[1.2, 0.72, 1]}
-                outlineThickness={0.014}
-              >
-                <sphereGeometry args={[0.07, 24, 18]} />
-              </ToonMesh>
-            )}
-
-            {/* Hover tile feedback */}
-            {isHovered && (
-              <mesh position={[0, 0.02, 0]} rotation={[-Math.PI * 0.5, 0, 0]}>
-                <planeGeometry args={[0.82, 0.82]} />
-                <meshBasicMaterial
-                  color={
-                    selectedBuildId
-                      ? canPlaceHere
-                        ? '#f4e4c1'
-                        : '#c94a38'
-                      : '#fff8de'
-                  }
-                  transparent
-                  opacity={0.42}
-                />
-              </mesh>
-            )}
-          </group>
-        );
-      })}
-
-      {/* Raider Entry Gate Pillars */}
-      <group position={[startPos[0], -0.05, startPos[2]]}>
+      <group position={[startPosition[0], -0.05, startPosition[2]]}>
         <ToonRoundedBox
           args={[0.18, 0.48, 0.18]}
           radius={0.05}
@@ -268,7 +354,6 @@ export const IslandGrid3D: React.FC<IslandGrid3DProps> = ({
         />
       </group>
 
-      {/* Tower Range Ring Preview */}
       {rangePreview && (
         <group position={gridToWorld(rangePreview.col, rangePreview.row, 0.035)}>
           <mesh rotation={[-Math.PI * 0.5, 0, 0]}>
@@ -291,6 +376,7 @@ export const IslandGrid3D: React.FC<IslandGrid3DProps> = ({
           </mesh>
         </group>
       )}
+
     </group>
   );
 };

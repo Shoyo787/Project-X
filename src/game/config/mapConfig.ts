@@ -1,7 +1,19 @@
-import { DailyQuest, GameState, GridCoord, PlacedEntity, TileType } from '../../types/game';
+import {
+  BuildableId,
+  DailyQuest,
+  GameState,
+  GridCoord,
+  PlacedEntity,
+  TileType,
+} from '../../types/game';
+import { BUILDING_CONFIGS } from './buildings';
+import { TOWER_CONFIGS } from './towers';
 
-export const GRID_COLS = 12;
-export const GRID_ROWS = 10;
+export const GRID_COLS = 24;
+export const GRID_ROWS = 20;
+export const CELL_SIZE = 0.5;
+export const PATH_WIDTH = 1;
+export const KEEP_FOOTPRINT = { width: 6, height: 6 };
 
 export const BASE_STORAGE_GOLD = 600;
 export const BASE_STORAGE_AETHER = 300;
@@ -9,9 +21,9 @@ export const BASE_STORAGE_AETHER = 300;
 export const BASE_KEEP_GOLD_PER_SEC = 1.5;
 export const BASE_KEEP_AETHER_PER_SEC = 0.6;
 
-export const KEEP_COORD: GridCoord = { col: 10, row: 5 };
+export const KEEP_COORD: GridCoord = { col: 18, row: 8 };
 
-export const PATH_WAYPOINTS: GridCoord[] = [
+const ORIGINAL_PATH_WAYPOINTS: GridCoord[] = [
   { col: 0, row: 2 },
   { col: 1, row: 2 },
   { col: 2, row: 2 },
@@ -38,16 +50,82 @@ export const PATH_WAYPOINTS: GridCoord[] = [
   { col: 10, row: 5 },
 ];
 
-const PATH_KEY_SET = new Set(PATH_WAYPOINTS.map((pt) => `${pt.col},${pt.row}`));
+export const PATH_WAYPOINTS: GridCoord[] = ORIGINAL_PATH_WAYPOINTS.flatMap(
+  (point, index) => {
+    const scaled = { col: point.col * 2 + 0.5, row: point.row * 2 + 0.5 };
+    const nextPoint = ORIGINAL_PATH_WAYPOINTS[index + 1];
+    if (!nextPoint) return [scaled];
+
+    return [
+      scaled,
+      {
+        col: point.col + nextPoint.col + 0.5,
+        row: point.row + nextPoint.row + 0.5,
+      },
+    ];
+  },
+);
+
+export function getBuildableFootprint(configId: BuildableId) {
+  if (
+    configId === 'archer_spire' ||
+    configId === 'frost_obelisk' ||
+    configId === 'cannon_bastion'
+  ) {
+    return TOWER_CONFIGS[configId].footprint;
+  }
+  return BUILDING_CONFIGS[configId].footprint;
+}
+
+export function getFootprintCenter(
+  col: number,
+  row: number,
+  footprint: { width: number; height: number },
+): GridCoord {
+  return {
+    col: col + (footprint.width - 1) * 0.5,
+    row: row + (footprint.height - 1) * 0.5,
+  };
+}
+
+function isOnPath(col: number, row: number): boolean {
+  const x = (col - (GRID_COLS - 1) * 0.5) * CELL_SIZE;
+  const z = (row - (GRID_ROWS - 1) * 0.5) * CELL_SIZE;
+  const halfWidth = PATH_WIDTH * 0.5;
+
+  for (let i = 0; i < PATH_WAYPOINTS.length - 1; i += 1) {
+    const start = PATH_WAYPOINTS[i];
+    const end = PATH_WAYPOINTS[i + 1];
+    if (!start || !end) continue;
+
+    const ax = (start.col - (GRID_COLS - 1) * 0.5) * CELL_SIZE;
+    const az = (start.row - (GRID_ROWS - 1) * 0.5) * CELL_SIZE;
+    const bx = (end.col - (GRID_COLS - 1) * 0.5) * CELL_SIZE;
+    const bz = (end.row - (GRID_ROWS - 1) * 0.5) * CELL_SIZE;
+    const dx = bx - ax;
+    const dz = bz - az;
+    const lengthSq = dx * dx + dz * dz;
+    const t = lengthSq
+      ? Math.max(0, Math.min(1, ((x - ax) * dx + (z - az) * dz) / lengthSq))
+      : 0;
+    const nearestX = ax + dx * t;
+    const nearestZ = az + dz * t;
+    if (Math.hypot(x - nearestX, z - nearestZ) <= halfWidth) return true;
+  }
+
+  return false;
+}
 
 export function getTileType(col: number, row: number): TileType {
-  if (col === KEEP_COORD.col && row === KEEP_COORD.row) {
+  if (
+    col >= KEEP_COORD.col &&
+    col < KEEP_COORD.col + KEEP_FOOTPRINT.width &&
+    row >= KEEP_COORD.row &&
+    row < KEEP_COORD.row + KEEP_FOOTPRINT.height
+  ) {
     return 'keep';
   }
-  if (PATH_KEY_SET.has(`${col},${row}`)) {
-    return 'path';
-  }
-  return 'grass';
+  return isOnPath(col, row) ? 'path' : 'grass';
 }
 
 export function isValidGridCoord(col: number, row: number): boolean {
@@ -60,8 +138,8 @@ export function createStarterEntities(): PlacedEntity[] {
       id: 'starter_archer_1',
       configId: 'archer_spire',
       category: 'tower',
-      col: 4,
-      row: 4,
+      col: 8,
+      row: 8,
       level: 1,
       upgradeStartTimestamp: null,
       upgradeFinishTimestamp: null,
@@ -74,7 +152,7 @@ export function createStarterEntities(): PlacedEntity[] {
       configId: 'quarry_mine',
       category: 'building',
       col: 1,
-      row: 5,
+      row: 9,
       level: 1,
       upgradeStartTimestamp: null,
       upgradeFinishTimestamp: null,
@@ -87,7 +165,7 @@ export function createStarterEntities(): PlacedEntity[] {
       configId: 'storage_vault',
       category: 'building',
       col: 1,
-      row: 7,
+      row: 13,
       level: 1,
       upgradeStartTimestamp: null,
       upgradeFinishTimestamp: null,
@@ -140,7 +218,7 @@ export function createInitialGameState(nowMs: number = Date.now()): GameState {
   // Schedule the daily Eclipse Siege Boss countdown 6 hours ahead by default
   const sixHoursMs = 6 * 60 * 60 * 1000;
   return {
-    version: 1,
+    version: 2,
     resources: {
       gold: 340,
       aether: 140,

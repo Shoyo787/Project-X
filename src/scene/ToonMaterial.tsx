@@ -2,7 +2,7 @@ import React from 'react';
 import { Outlines, RoundedBox } from '@react-three/drei';
 import { ThreeEvent } from '@react-three/fiber';
 import * as THREE from 'three';
-import { GRID_COLS, GRID_ROWS } from '../game/config';
+import { CELL_SIZE, GRID_COLS, GRID_ROWS } from '../game/config';
 
 export const INK_OUTLINE_COLOR = '#1e1916';
 
@@ -31,7 +31,11 @@ export function gridToWorld(
   row: number,
   y = 0,
 ): [number, number, number] {
-  return [col - (GRID_COLS - 1) * 0.5, y, row - (GRID_ROWS - 1) * 0.5];
+  return [
+    (col - (GRID_COLS - 1) * 0.5) * CELL_SIZE,
+    y,
+    (row - (GRID_ROWS - 1) * 0.5) * CELL_SIZE,
+  ];
 }
 
 export interface ToonMeshProps {

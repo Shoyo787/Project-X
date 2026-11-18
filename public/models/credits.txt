@@ -1,0 +1,13 @@
+All models are distributed under CC0 1.0 Public Domain Dedication.
+They are bundled locally so the game does not depend on a third-party runtime.
+
+Enemy Small, Enemy Large, Zombie, Goleling, Wizard, Watch Tower, Turret Cannon,
+Hut, Market Stalls Compact, and Wooden Castle
+Creator: Quaternius
+Source: https://poly.pizza/u/Quaternius
+License: https://creativecommons.org/publicdomain/zero/1.0/
+
+Crystal
+Creator: iPoly3D
+Source: https://poly.pizza/m/5dXobG8vsp
+License: https://creativecommons.org/publicdomain/zero/1.0/

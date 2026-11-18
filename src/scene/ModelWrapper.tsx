@@ -1,10 +1,12 @@
-import React, { Suspense, useMemo, useRef } from 'react';
-import { useGLTF } from '@react-three/drei';
+import React, { Suspense, useEffect, useMemo, useRef } from 'react';
+import { Sparkles, useAnimations, useGLTF } from '@react-three/drei';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
+import { SkeletonUtils } from 'three-stdlib';
+import { CELL_SIZE, getBuildableConfig, isTowerId } from '../game/config';
 import { GameEngine } from '../game/engine/GameEngine';
 import { BuildableId, EnemyId } from '../types/game';
-import { INK_OUTLINE_COLOR, ToonMesh, ToonRoundedBox } from './ToonMaterial';
+import { ToonMesh, ToonRoundedBox } from './ToonMaterial';
 
 function dampAngleShortest(current: number, target: number, lambda: number, delta: number): number {
   const twoPi = Math.PI * 2;
@@ -16,53 +18,148 @@ interface GlbModelProps {
   modelPath: string;
   scale?: number;
   tintColor?: string;
+  targetHeight?: number;
+  maxFootprint?: number;
+  motion?: 'tower' | 'crystal' | 'cannon' | 'economy' | 'keep' | 'enemy';
+  phaseOffset?: number;
+  engine?: GameEngine;
+  entityId?: string;
 }
 
-const GlbModel: React.FC<GlbModelProps> = ({ modelPath, scale = 1, tintColor }) => {
-  const { scene } = useGLTF(modelPath);
+const GlbModel: React.FC<GlbModelProps> = ({
+  modelPath,
+  scale = 1,
+  tintColor,
+  targetHeight = 1.3,
+  maxFootprint = 1.25,
+  motion = 'tower',
+  phaseOffset = 0,
+  engine,
+  entityId,
+}) => {
+  const { scene, animations } = useGLTF(modelPath);
+  const rootRef = useRef<THREE.Group>(null);
 
-  const styledScene = useMemo(() => {
-    const clone = scene.clone(true);
-    const outlineMat = new THREE.MeshBasicMaterial({
-      color: INK_OUTLINE_COLOR,
-      side: THREE.BackSide,
-    });
+  const model = useMemo(() => {
+    const clone = SkeletonUtils.clone(scene);
+    const baseColors = new Map<THREE.Material, THREE.Color>();
 
     clone.traverse((obj) => {
       if (!(obj instanceof THREE.Mesh)) return;
-      obj.castShadow = true;
-      obj.receiveShadow = true;
-
-      const srcMat = obj.material as THREE.MeshStandardMaterial | undefined;
-      const baseColor = tintColor
-        ? new THREE.Color(tintColor)
-        : srcMat?.color
-          ? srcMat.color.clone()
-          : new THREE.Color('#d8c8a8');
-
-      obj.material = new THREE.MeshStandardMaterial({
-        color: baseColor,
-        map: srcMat?.map ?? null,
-        roughness: 0.62,
-        metalness: 0.04,
-        flatShading: false,
-      });
-
-      if (!obj.userData.hasInkOutline && obj.geometry) {
-        const outline = new THREE.Mesh(obj.geometry, outlineMat);
-        outline.scale.setScalar(1.035);
-        outline.castShadow = false;
-        outline.receiveShadow = false;
-        outline.userData.hasInkOutline = true;
-        obj.add(outline);
-        obj.userData.hasInkOutline = true;
-      }
+      obj.castShadow = motion !== 'enemy';
+      obj.receiveShadow = motion !== 'enemy';
+      const isolateMaterial = (material: THREE.Material): THREE.Material => {
+        const isolated = material.clone();
+        if (isolated instanceof THREE.MeshStandardMaterial) {
+          baseColors.set(isolated, isolated.color.clone());
+        }
+        return isolated;
+      };
+      obj.material = Array.isArray(obj.material)
+        ? obj.material.map(isolateMaterial)
+        : isolateMaterial(obj.material);
     });
 
-    return clone;
-  }, [scene, tintColor]);
+    clone.updateMatrixWorld(true);
+    const bounds = new THREE.Box3().setFromObject(clone);
+    const size = bounds.getSize(new THREE.Vector3());
+    const footprint = Math.max(size.x, size.z, 0.001);
+    const modelScale = Math.min(
+      targetHeight / Math.max(size.y, 0.001),
+      maxFootprint / footprint,
+    );
+    const center = bounds.getCenter(new THREE.Vector3());
 
-  return <primitive object={styledScene} scale={scale} />;
+    return {
+      scene: clone,
+      scale: modelScale * scale,
+      baseColors,
+      position: [
+        -center.x,
+        -bounds.min.y,
+        -center.z,
+      ] as [number, number, number],
+    };
+  }, [scene, targetHeight, maxFootprint, scale, motion]);
+
+  useEffect(() => {
+    const tint = tintColor ? new THREE.Color(tintColor) : null;
+    model.scene.traverse((obj) => {
+      if (!(obj instanceof THREE.Mesh)) return;
+      const materials = Array.isArray(obj.material) ? obj.material : [obj.material];
+      for (const material of materials) {
+        if (!(material instanceof THREE.MeshStandardMaterial)) continue;
+        const original = model.baseColors.get(material);
+        if (original) material.color.copy(tint ?? original);
+      }
+    });
+  }, [model, tintColor]);
+
+  const { actions, names } = useAnimations(animations, rootRef);
+  const animationName = useMemo(() => {
+    const priorities =
+      motion === 'enemy'
+        ? ['walk', 'run', 'flying', 'fly', 'idle']
+        : ['idle', 'fly', 'flying', 'walk'];
+    const lowerNames = names.map((name) => name.toLowerCase());
+    for (const word of priorities) {
+      const index = lowerNames.findIndex((name) => name.includes(word));
+      if (index >= 0) return names[index];
+    }
+    return names[0];
+  }, [motion, names]);
+
+  useEffect(() => {
+    if (!animationName) return;
+    const action = actions[animationName];
+    if (!action) return;
+    action.setLoop(THREE.LoopRepeat, Infinity);
+    action.clampWhenFinished = false;
+    action.reset().setEffectiveTimeScale(1).fadeIn(0.25).play();
+    return () => {
+      action.fadeOut(0.15);
+    };
+  }, [actions, animationName]);
+
+  const baseScale = model.scale;
+  useFrame(({ clock }, delta) => {
+    const root = rootRef.current;
+    if (!root) return;
+
+    const time = clock.elapsedTime + phaseOffset;
+    const targetAngle =
+      motion === 'cannon' && entityId
+        ? -(engine?.getVisualState().towerAngleMap[entityId] ?? 0)
+        : 0;
+
+    if (motion === 'crystal') {
+      root.rotation.y += delta * 0.55;
+      root.position.y = Math.sin(time * 2.8) * 0.05;
+      root.scale.setScalar(baseScale * (1 + Math.sin(time * 2.8) * 0.012));
+    } else if (motion === 'cannon') {
+      root.rotation.y = dampAngleShortest(root.rotation.y, targetAngle, 14, delta);
+      root.position.y = Math.sin(time * 2.1) * 0.012;
+      root.scale.setScalar(baseScale);
+    } else if (motion === 'enemy') {
+      root.position.y = 0;
+      root.rotation.y = Math.sin(time * 0.8) * 0.02;
+      root.scale.setScalar(baseScale);
+    } else {
+      root.rotation.y = Math.sin(time * 0.7) * (motion === 'keep' ? 0.008 : 0.018);
+      root.position.y = Math.sin(time * 1.8) * 0.012;
+      root.scale.setScalar(baseScale * (1 + Math.sin(time * 1.8) * 0.006));
+    }
+  });
+
+  return (
+    <group ref={rootRef}>
+      <primitive
+        object={model.scene}
+        position={model.position}
+        scale={model.scale}
+      />
+    </group>
+  );
 };
 
 interface KeepModel3DProps {
@@ -105,7 +202,21 @@ export const KeepModel3D: React.FC<KeepModel3DProps> = ({ modelPath }) => {
   if (!modelPath) return fallback;
   return (
     <Suspense fallback={fallback}>
-      <GlbModel modelPath={modelPath} />
+      <GlbModel
+        modelPath={modelPath}
+        targetHeight={2.1}
+        maxFootprint={2.55}
+        motion="keep"
+      />
+      <Sparkles
+        count={22}
+        position={[0, 0.85, 0]}
+        scale={[1.8, 1.7, 1.8]}
+        size={2.2}
+        speed={0.28}
+        color="#f4c76b"
+        opacity={0.75}
+      />
     </Suspense>
   );
 };
@@ -339,9 +450,43 @@ export const ModelWrapper: React.FC<StructureModelProps> = ({
 }) => {
   const fallback = <ProceduralStructure {...props} />;
   if (!modelPath) return fallback;
+  const motion =
+    props.configId === 'frost_obelisk' || props.configId === 'aether_conduit'
+      ? 'crystal'
+      : props.configId === 'cannon_bastion'
+        ? 'cannon'
+        : props.configId === 'archer_spire'
+          ? 'tower'
+          : 'economy';
+  const footprint = getBuildableConfig(props.configId).footprint;
+  const maxFootprint = Math.max(footprint.width, footprint.height) * CELL_SIZE * 0.88;
+  const targetHeight = isTowerId(props.configId)
+    ? 1.55
+    : Math.min(1.7, 0.75 + Math.max(footprint.width, footprint.height) * 0.2);
   return (
     <Suspense fallback={fallback}>
-      <GlbModel modelPath={modelPath} scale={1 + (props.level - 1) * 0.05} />
+      <GlbModel
+        modelPath={modelPath}
+        scale={1 + (props.level - 1) * 0.05}
+          targetHeight={targetHeight}
+          maxFootprint={maxFootprint}
+        motion={motion}
+        phaseOffset={props.phaseOffset}
+        engine={props.engine}
+        entityId={props.entityId}
+      />
+      {(props.configId === 'frost_obelisk' ||
+        props.configId === 'aether_conduit') && (
+        <Sparkles
+          count={18}
+          position={[0, 0.42, 0]}
+          scale={[0.8, 1.05, 0.8]}
+          size={2.8}
+          speed={0.45}
+          color={props.configId === 'frost_obelisk' ? '#7ed3e6' : '#f4c76b'}
+          opacity={0.85}
+        />
+      )}
     </Suspense>
   );
 };
@@ -355,6 +500,28 @@ interface EnemyModelProps {
   isBoss?: boolean;
   isChilled: boolean;
   isFlashing: boolean;
+}
+
+class EnemyModelErrorBoundary extends React.Component<
+  React.PropsWithChildren<{ fallback: React.ReactNode; modelPath: string }>,
+  { hasError: boolean }
+> {
+  state = { hasError: false };
+
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error: Error): void {
+    console.error(
+      `Unable to load enemy model "${this.props.modelPath}"; showing the procedural model instead.`,
+      error,
+    );
+  }
+
+  render() {
+    return this.state.hasError ? this.props.fallback : this.props.children;
+  }
 }
 
 const ProceduralEnemy: React.FC<Omit<EnemyModelProps, 'modelPath'>> = ({
@@ -413,14 +580,20 @@ export const EnemyModelWrapper: React.FC<EnemyModelProps> = ({
   const fallback = <ProceduralEnemy {...props} />;
   if (!modelPath) return fallback;
   return (
-    <Suspense fallback={fallback}>
-      <GlbModel
-        modelPath={modelPath}
-        scale={props.scale}
-        tintColor={
-          props.isFlashing ? '#ffffff' : props.isChilled ? '#7ed3e6' : undefined
-        }
-      />
-    </Suspense>
+    <EnemyModelErrorBoundary fallback={fallback} modelPath={modelPath}>
+      <Suspense fallback={fallback}>
+        <GlbModel
+          modelPath={modelPath}
+          scale={props.scale}
+          targetHeight={0.82}
+          maxFootprint={1.05}
+          motion="enemy"
+          phaseOffset={props.scale}
+          tintColor={
+            props.isFlashing ? '#ffffff' : props.isChilled ? '#7ed3e6' : undefined
+          }
+        />
+      </Suspense>
+    </EnemyModelErrorBoundary>
   );
 };

@@ -17,6 +17,11 @@ export interface GridCoord {
   row: number;
 }
 
+export interface Footprint {
+  width: number;
+  height: number;
+}
+
 export interface TowerLevelStats {
   level: number;
   costGold: number;
@@ -39,6 +44,7 @@ export interface TowerConfig {
   projectileType: 'arrow' | 'frost_nova' | 'cannonball';
   accentColor: string;
   roofColor: string;
+  footprint: Footprint;
   modelPath?: string;
   levels: TowerLevelStats[];
 }
@@ -62,6 +68,7 @@ export interface BuildingConfig {
   category: 'building';
   accentColor: string;
   roofColor: string;
+  footprint: Footprint;
   modelPath?: string;
   levels: BuildingLevelStats[];
 }

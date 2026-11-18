@@ -57,10 +57,11 @@ export const BuildDock: React.FC<BuildDockProps> = ({
             <>
               <Hammer className="h-3.5 w-3.5 text-[#c86446]" />
               <span>
-                Click any open grass tile on the island to construct{' '}
+                Choose the top-left grass tile for this{' '}
                 <strong className="text-[#a64430]">
                   {allItems.find((i) => i.id === selectedBuildId)?.name}
                 </strong>
+                . The preview turns green when the full footprint fits.
               </span>
               <button
                 type="button"
@@ -107,7 +108,8 @@ export const BuildDock: React.FC<BuildDockProps> = ({
                   </span>
                 </div>
                 <div className="mt-0.5 text-[10px] font-medium text-[#6b5a44] truncate max-w-full">
-                  {item.category === 'tower' ? 'Defense' : 'Economy'}
+                  {item.category === 'tower' ? 'Defense' : 'Economy'} ·{' '}
+                  {item.footprint.width}x{item.footprint.height} cells
                 </div>
                 <div className="mt-1 flex items-center gap-2 font-mono text-[11px] font-bold">
                   <span className={gold >= lvl1.costGold ? 'text-[#8c5e14]' : 'text-[#b0432b]'}>
