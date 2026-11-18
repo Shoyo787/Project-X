@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { BuildDock } from './components/BuildDock';
 import { EntityInspector } from './components/EntityInspector';
 import { QuestSidebar } from './components/QuestSidebar';
@@ -6,8 +6,8 @@ import { StewardReportModal } from './components/StewardReportModal';
 import { TopBar } from './components/TopBar';
 import { BUILDING_LIST, TOWER_LIST, isValidGridCoord } from './game/config';
 import { GameEngine } from './game/engine/GameEngine';
-import { IsoRenderer, RenderInteractionState } from './game/renderer/IsoRenderer';
-import { BuildableId, DailyQuest, GridCoord, OfflineReport, PlacedEntity } from './types/game';
+import { GameCanvas3D } from './scene/GameCanvas3D';
+import { BuildableId, DailyQuest, OfflineReport, PlacedEntity } from './types/game';
 
 interface HudSnapshot {
   gold: number;
@@ -66,29 +66,10 @@ export function App() {
     engineRef.current = new GameEngine();
   }
 
-  const rendererRef = useRef<IsoRenderer | null>(null);
-  if (!rendererRef.current) {
-    rendererRef.current = new IsoRenderer();
-  }
-
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-
   const [hud, setHud] = useState<HudSnapshot>(() => createHudSnapshot(engineRef.current!));
   const [selectedBuildId, setSelectedBuildId] = useState<BuildableId | null>(null);
   const [selectedEntityId, setSelectedEntityId] = useState<string | null>(null);
-  const [hoveredTile, setHoveredTile] = useState<GridCoord | null>(null);
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
-
-  const interactionRef = useRef<RenderInteractionState>({
-    hoveredTile: null,
-    selectedEntityId: null,
-    selectedBuildId: null,
-  });
-  interactionRef.current = {
-    hoveredTile,
-    selectedEntityId,
-    selectedBuildId,
-  };
 
   const syncHud = useCallback(() => {
     if (engineRef.current) {
@@ -105,60 +86,6 @@ export function App() {
     const timer = window.setTimeout(() => setFeedbackMessage(null), 2400);
     return () => window.clearTimeout(timer);
   }, [feedbackMessage]);
-
-  // 60 FPS simulation & Isometric Canvas loop
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    const engine = engineRef.current;
-    const renderer = rendererRef.current;
-    if (!canvas || !engine || !renderer) return;
-
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    let width = window.innerWidth;
-    let height = window.innerHeight;
-
-    const resize = () => {
-      const dpr = Math.min(window.devicePixelRatio || 1, 2);
-      width = window.innerWidth;
-      height = window.innerHeight;
-      canvas.width = Math.floor(width * dpr);
-      canvas.height = Math.floor(height * dpr);
-      canvas.style.width = `${width}px`;
-      canvas.style.height = `${height}px`;
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    };
-
-    resize();
-    window.addEventListener('resize', resize);
-
-    let rafId = 0;
-    let lastFrameMs = performance.now();
-    let lastHudSyncMs = 0;
-
-    const frame = (nowPerf: number) => {
-      const dtSec = Math.max(0.001, (nowPerf - lastFrameMs) / 1000);
-      lastFrameMs = nowPerf;
-
-      engine.tick(dtSec);
-      renderer.render(ctx, width, height, engine, interactionRef.current, nowPerf / 1000);
-
-      if (nowPerf - lastHudSyncMs >= 100) {
-        lastHudSyncMs = nowPerf;
-        setHud(createHudSnapshot(engine));
-      }
-
-      rafId = window.requestAnimationFrame(frame);
-    };
-
-    rafId = window.requestAnimationFrame(frame);
-
-    return () => {
-      window.cancelAnimationFrame(rafId);
-      window.removeEventListener('resize', resize);
-    };
-  }, []);
 
   // Keyboard shortcuts (1-6 build hotkeys, Esc cancel, Space pause)
   useEffect(() => {
@@ -189,57 +116,36 @@ export function App() {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [syncHud]);
 
-  const handleCanvasMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    const canvas = canvasRef.current;
-    const renderer = rendererRef.current;
-    if (!canvas || !renderer) return;
+  const handleTileClick = useCallback(
+    (col: number, row: number) => {
+      const engine = engineRef.current;
+      if (!engine) return;
 
-    const rect = canvas.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-    const picked = renderer.pickGridTile(x, y);
+      engine.sound.unlock();
 
-    if (isValidGridCoord(picked.col, picked.row)) {
-      setHoveredTile(picked);
-    } else {
-      setHoveredTile(null);
-    }
-  };
-
-  const handleCanvasClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    const canvas = canvasRef.current;
-    const renderer = rendererRef.current;
-    const engine = engineRef.current;
-    if (!canvas || !renderer || !engine) return;
-
-    engine.sound.unlock();
-
-    const rect = canvas.getBoundingClientRect();
-    const picked = renderer.pickGridTile(e.clientX - rect.left, e.clientY - rect.top);
-
-    if (!isValidGridCoord(picked.col, picked.row)) {
-      setSelectedEntityId(null);
-      return;
-    }
-
-    if (selectedBuildId) {
-      const result = engine.placeEntity(selectedBuildId, picked.col, picked.row);
-      if (result.ok && result.entity) {
-        if (!e.shiftKey) {
-          setSelectedBuildId(null);
-        }
-        setSelectedEntityId(result.entity.id);
-        setFeedbackMessage(null);
-      } else if (result.error) {
-        showFeedback(result.error);
+      if (!isValidGridCoord(col, row)) {
+        setSelectedEntityId(null);
+        return;
       }
-      syncHud();
-      return;
-    }
 
-    const existing = engine.getEntityAt(picked.col, picked.row);
-    setSelectedEntityId(existing ? existing.id : null);
-  };
+      if (selectedBuildId) {
+        const result = engine.placeEntity(selectedBuildId, col, row);
+        if (result.ok && result.entity) {
+          setSelectedBuildId(null);
+          setSelectedEntityId(result.entity.id);
+          setFeedbackMessage(null);
+        } else if (result.error) {
+          showFeedback(result.error);
+        }
+        syncHud();
+        return;
+      }
+
+      const existing = engine.getEntityAt(col, row);
+      setSelectedEntityId(existing ? existing.id : null);
+    },
+    [selectedBuildId, showFeedback, syncHud],
+  );
 
   const selectedEntity =
     selectedEntityId !== null
@@ -248,14 +154,16 @@ export function App() {
 
   return (
     <main className="relative h-screen w-screen overflow-hidden">
-      <canvas
-        ref={canvasRef}
-        onMouseMove={handleCanvasMouseMove}
-        onMouseLeave={() => setHoveredTile(null)}
-        onClick={handleCanvasClick}
-        className={`block h-full w-full ${
-          selectedBuildId ? 'cursor-crosshair' : 'cursor-pointer'
-        }`}
+      <GameCanvas3D
+        engine={engineRef.current}
+        entities={hud.entities}
+        keepHp={hud.keepHp}
+        keepMaxHp={hud.keepMaxHp}
+        selectedBuildId={selectedBuildId}
+        selectedEntityId={selectedEntityId}
+        onTileClick={handleTileClick}
+        onClearSelection={() => setSelectedEntityId(null)}
+        onHudSync={syncHud}
       />
 
       <div className="pointer-events-none fixed inset-0 z-10 flex flex-col justify-between gap-2 p-2.5 sm:p-4">

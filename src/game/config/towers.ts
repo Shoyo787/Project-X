@@ -11,6 +11,8 @@ export const TOWER_CONFIGS: Record<TowerId, TowerConfig> = {
     projectileType: 'arrow',
     accentColor: '#d99b52',
     roofColor: '#c86446',
+    // Optional external .glb path under public/models/, e.g. '/models/archer_spire.glb'
+    modelPath: undefined,
     levels: [
       {
         level: 1,
@@ -69,6 +71,7 @@ export const TOWER_CONFIGS: Record<TowerId, TowerConfig> = {
     projectileType: 'frost_nova',
     accentColor: '#5ba4b5',
     roofColor: '#4c8899',
+    modelPath: undefined,
     levels: [
       {
         level: 1,
@@ -137,6 +140,7 @@ export const TOWER_CONFIGS: Record<TowerId, TowerConfig> = {
     projectileType: 'cannonball',
     accentColor: '#6f7882',
     roofColor: '#3d4349',
+    modelPath: undefined,
     levels: [
       {
         level: 1,

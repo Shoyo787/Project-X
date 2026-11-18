@@ -39,6 +39,7 @@ export interface TowerConfig {
   projectileType: 'arrow' | 'frost_nova' | 'cannonball';
   accentColor: string;
   roofColor: string;
+  modelPath?: string;
   levels: TowerLevelStats[];
 }
 
@@ -61,6 +62,7 @@ export interface BuildingConfig {
   category: 'building';
   accentColor: string;
   roofColor: string;
+  modelPath?: string;
   levels: BuildingLevelStats[];
 }
 
@@ -81,6 +83,7 @@ export interface EnemyConfig {
   scale: number;
   primaryColor: string;
   secondaryColor: string;
+  modelPath?: string;
   isBoss?: boolean;
 }
 

@@ -11,6 +11,8 @@ export const ENEMY_CONFIGS: Record<EnemyId, EnemyConfig> = {
     scale: 0.85,
     primaryColor: '#6d8a4b',
     secondaryColor: '#9d7648',
+    // Optional external .glb path under public/models/, e.g. '/models/goblin_raider.glb'
+    modelPath: undefined,
   },
   shield_brigand: {
     id: 'shield_brigand',
@@ -22,6 +24,7 @@ export const ENEMY_CONFIGS: Record<EnemyId, EnemyConfig> = {
     scale: 1.05,
     primaryColor: '#8f4f3c',
     secondaryColor: '#b59264',
+    modelPath: undefined,
   },
   aether_wisp: {
     id: 'aether_wisp',
@@ -33,6 +36,7 @@ export const ENEMY_CONFIGS: Record<EnemyId, EnemyConfig> = {
     scale: 0.9,
     primaryColor: '#4f9fb2',
     secondaryColor: '#c3e7ed',
+    modelPath: undefined,
   },
   iron_golem: {
     id: 'iron_golem',
@@ -44,6 +48,7 @@ export const ENEMY_CONFIGS: Record<EnemyId, EnemyConfig> = {
     scale: 1.35,
     primaryColor: '#5a626a',
     secondaryColor: '#c98842',
+    modelPath: undefined,
   },
   eclipse_boss: {
     id: 'eclipse_boss',
@@ -55,6 +60,7 @@ export const ENEMY_CONFIGS: Record<EnemyId, EnemyConfig> = {
     scale: 1.75,
     primaryColor: '#3d3540',
     secondaryColor: '#d4743b',
+    modelPath: undefined,
     isBoss: true,
   },
 };

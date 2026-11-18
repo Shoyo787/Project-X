@@ -10,6 +10,8 @@ export const BUILDING_CONFIGS: Record<BuildingId, BuildingConfig> = {
     category: 'building',
     accentColor: '#d9a441',
     roofColor: '#b57b3b',
+    // Optional external .glb path under public/models/, e.g. '/models/quarry_mine.glb'
+    modelPath: undefined,
     levels: [
       {
         level: 1,
@@ -72,6 +74,7 @@ export const BUILDING_CONFIGS: Record<BuildingId, BuildingConfig> = {
     category: 'building',
     accentColor: '#5ba4b5',
     roofColor: '#3f7c8c',
+    modelPath: undefined,
     levels: [
       {
         level: 1,
@@ -134,6 +137,7 @@ export const BUILDING_CONFIGS: Record<BuildingId, BuildingConfig> = {
     category: 'building',
     accentColor: '#c86446',
     roofColor: '#a34e35',
+    modelPath: undefined,
     levels: [
       {
         level: 1,

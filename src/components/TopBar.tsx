@@ -68,23 +68,23 @@ export const TopBar: React.FC<TopBarProps> = ({
   return (
     <header className="pointer-events-none z-20 flex flex-wrap items-center justify-between gap-2">
       {/* Left: Title + Resources */}
-      <div className="pointer-events-auto flex flex-wrap items-center gap-2">
-        <div className="parchment-panel flex items-center gap-2 rounded-xl px-3 py-1.5">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-[#2b2623] bg-[#c86446] text-[#fcf8ef] shadow-xs">
+      <div className="pointer-events-auto flex flex-wrap items-center gap-1.5">
+        <div className="parchment-panel flex items-center gap-2 rounded-xl px-2.5 py-1.5">
+          <div className="flex h-7 w-7 items-center justify-center rounded-lg border border-[#2b2623] bg-[#c86446] text-[#fcf8ef] shadow-xs">
             <Castle className="h-4 w-4" />
           </div>
           <div>
-            <h1 className="font-display text-sm font-extrabold tracking-wide text-[#2b2623] leading-none">
+            <h1 className="font-display text-xs font-extrabold tracking-wide text-[#2b2623] leading-none">
               BASTION VALE
             </h1>
-            <p className="text-[11px] font-semibold text-[#6b5a44] leading-tight">
+            <p className="text-[10px] font-semibold text-[#6b5a44] leading-tight">
               Isometric Stronghold
             </p>
           </div>
         </div>
 
         {/* Gold / Timber Storage Gauge */}
-        <div className="parchment-panel flex min-w-[168px] flex-col gap-1 rounded-xl px-3 py-1.5">
+        <div className="parchment-panel flex min-w-[144px] flex-col gap-1 rounded-xl px-2.5 py-1.5">
           <div className="flex items-center justify-between gap-2 text-xs">
             <span className="flex items-center gap-1 font-bold text-[#2b2623]">
               <Coins className="h-3.5 w-3.5 text-[#c78b2a]" />
@@ -111,7 +111,7 @@ export const TopBar: React.FC<TopBarProps> = ({
         </div>
 
         {/* Aether / Mana Storage Gauge */}
-        <div className="parchment-panel flex min-w-[162px] flex-col gap-1 rounded-xl px-3 py-1.5">
+        <div className="parchment-panel flex min-w-[138px] flex-col gap-1 rounded-xl px-2.5 py-1.5">
           <div className="flex items-center justify-between gap-2 text-xs">
             <span className="flex items-center gap-1 font-bold text-[#2b2623]">
               <Sparkles className="h-3.5 w-3.5 text-[#438e9e]" />
