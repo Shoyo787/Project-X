@@ -4,6 +4,8 @@ export const BUILDING_CONFIGS: Record<BuildingId, BuildingConfig> = {
   quarry_mine: {
     id: 'quarry_mine',
     name: 'Timber & Gold Quarry',
+    shortName: 'Quarry',
+    iconKey: 'pickaxe',
     subtitle: 'Steady Resource Extraction',
     description:
       'Stonemasons & loggers harvest warm sandstone and coin continuously, even while you are away.',
@@ -68,6 +70,8 @@ export const BUILDING_CONFIGS: Record<BuildingId, BuildingConfig> = {
   aether_conduit: {
     id: 'aether_conduit',
     name: 'Aether Wellspring',
+    shortName: 'Wellspring',
+    iconKey: 'sparkles',
     subtitle: 'Arcane Mana Distiller',
     description:
       'Draws luminous sky-aether into crystal basins to fuel Frost Obelisks and high-tier fortifications.',
@@ -131,6 +135,8 @@ export const BUILDING_CONFIGS: Record<BuildingId, BuildingConfig> = {
   storage_vault: {
     id: 'storage_vault',
     name: 'Grand Storage Vault',
+    shortName: 'Vault',
+    iconKey: 'warehouse',
     subtitle: 'Expands Treasury Caps',
     description:
       'Iron-banded storehouse increasing maximum Timber/Gold and Aether capacity for online & offline harvests.',

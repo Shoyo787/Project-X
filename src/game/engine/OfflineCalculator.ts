@@ -1,35 +1,35 @@
 import {
-  BASE_KEEP_AETHER_PER_SEC,
-  BASE_KEEP_GOLD_PER_SEC,
-  BASE_STORAGE_AETHER,
-  BASE_STORAGE_GOLD,
+  BALANCE_CONFIG,
   BUILDING_CONFIGS,
   TOWER_CONFIGS,
   getBuildableConfig,
+  getBuildingStatsAtLevel,
+  getMaxLevel,
+  getTowerStatsAtLevel,
   isBuildingId,
   isTowerId,
+  syncGridWithEntities,
 } from '../config';
-import { GameState, OfflineReport, PlacedEntity } from '../../types/game';
+import {
+  GameState,
+  OfflineReport,
+  PlacedEntity,
+  ProductionRates,
+  StorageCaps,
+} from '../../types/game';
 
-export interface StorageCaps {
-  maxGold: number;
-  maxAether: number;
-}
-
-export interface ProductionRates {
-  goldPerSec: number;
-  aetherPerSec: number;
-}
+export type { ProductionRates, StorageCaps };
 
 export function computeStorageCaps(entities: readonly PlacedEntity[]): StorageCaps {
-  let maxGold = BASE_STORAGE_GOLD;
-  let maxAether = BASE_STORAGE_AETHER;
+  let maxGold = BALANCE_CONFIG.baseStorageGold;
+  let maxAether = BALANCE_CONFIG.baseStorageAether;
 
   for (const entity of entities) {
     if (!isBuildingId(entity.configId)) continue;
-    const cfg = BUILDING_CONFIGS[entity.configId];
-    const stats = cfg.levels[Math.min(entity.level - 1, cfg.levels.length - 1)];
-    if (!stats) continue;
+    const stats = getBuildingStatsAtLevel(
+      BUILDING_CONFIGS[entity.configId],
+      entity.level,
+    );
     maxGold += stats.goldCapBonus;
     maxAether += stats.aetherCapBonus;
   }
@@ -37,16 +37,19 @@ export function computeStorageCaps(entities: readonly PlacedEntity[]): StorageCa
   return { maxGold, maxAether };
 }
 
-export function computeProductionRates(entities: readonly PlacedEntity[]): ProductionRates {
-  let goldPerSec = BASE_KEEP_GOLD_PER_SEC;
-  let aetherPerSec = BASE_KEEP_AETHER_PER_SEC;
+export function computeProductionRates(
+  entities: readonly PlacedEntity[],
+): ProductionRates {
+  let goldPerSec = BALANCE_CONFIG.baseKeepGoldPerSec;
+  let aetherPerSec = BALANCE_CONFIG.baseKeepAetherPerSec;
 
   for (const entity of entities) {
     if (entity.upgradeFinishTimestamp !== null) continue;
     if (!isBuildingId(entity.configId)) continue;
-    const cfg = BUILDING_CONFIGS[entity.configId];
-    const stats = cfg.levels[Math.min(entity.level - 1, cfg.levels.length - 1)];
-    if (!stats) continue;
+    const stats = getBuildingStatsAtLevel(
+      BUILDING_CONFIGS[entity.configId],
+      entity.level,
+    );
     goldPerSec += stats.goldPerSecond;
     aetherPerSec += stats.aetherPerSecond;
   }
@@ -61,13 +64,11 @@ export function computeTotalDefenseDps(entities: readonly PlacedEntity[]): numbe
   for (const entity of entities) {
     if (entity.upgradeFinishTimestamp !== null) continue;
     if (!isTowerId(entity.configId)) continue;
-    const cfg = TOWER_CONFIGS[entity.configId];
-    const stats = cfg.levels[Math.min(entity.level - 1, cfg.levels.length - 1)];
-    if (!stats) continue;
+    const stats = getTowerStatsAtLevel(TOWER_CONFIGS[entity.configId], entity.level);
 
     let towerDps = stats.damage * stats.fireRate;
     if (stats.splashRadius && stats.splashRadius > 0) {
-      towerDps *= 1.45;
+      towerDps *= BALANCE_CONFIG.dpsSynergy.splashMultiplier;
     }
     if (stats.slowFactor && stats.slowFactor > 0) {
       hasFrost = true;
@@ -75,19 +76,21 @@ export function computeTotalDefenseDps(entities: readonly PlacedEntity[]): numbe
     dps += towerDps;
   }
 
-  return hasFrost ? dps * 1.18 : dps;
+  return hasFrost ? dps * BALANCE_CONFIG.dpsSynergy.frostGlobalMultiplier : dps;
 }
 
 export function calculateOfflineProgress(
   state: GameState,
   nowMs: number,
-  minElapsedSeconds = 5,
+  minElapsedSeconds: number = BALANCE_CONFIG.offline.minElapsedSeconds,
 ): { updatedState: GameState; report: OfflineReport | null } {
   const elapsedSeconds = Math.max(0, (nowMs - state.lastActiveTimestamp) / 1000);
   if (elapsedSeconds < minElapsedSeconds) {
     return {
       updatedState: {
         ...state,
+        storageCaps: computeStorageCaps(state.entities),
+        grid: syncGridWithEntities(state.grid, state.entities),
         lastActiveTimestamp: nowMs,
       },
       report: null,
@@ -98,8 +101,7 @@ export function calculateOfflineProgress(
   const updatedEntities: PlacedEntity[] = state.entities.map((entity) => {
     if (entity.upgradeFinishTimestamp !== null && entity.upgradeFinishTimestamp <= nowMs) {
       const cfg = getBuildableConfig(entity.configId);
-      const maxLevel = cfg.levels.length;
-      const newLevel = Math.min(maxLevel, entity.level + 1);
+      const newLevel = Math.min(getMaxLevel(cfg), entity.level + 1);
       completedUpgrades.push({
         entityName: cfg.name,
         newLevel,
@@ -118,12 +120,20 @@ export function calculateOfflineProgress(
   const rates = computeProductionRates(updatedEntities);
   const totalDps = computeTotalDefenseDps(updatedEntities);
 
-  const avgEnemyHp = 75 + state.wave * 18;
+  const avgEnemyHp =
+    BALANCE_CONFIG.offline.baseEnemyHp +
+    state.wave * BALANCE_CONFIG.offline.enemyHpPerWave;
   const raidersDefeated =
     totalDps > 0 ? Math.floor((totalDps * elapsedSeconds) / avgEnemyHp) : 0;
 
-  const rawGoldGain = Math.floor(rates.goldPerSec * elapsedSeconds + raidersDefeated * 12);
-  const rawAetherGain = Math.floor(rates.aetherPerSec * elapsedSeconds + raidersDefeated * 4);
+  const rawGoldGain = Math.floor(
+    rates.goldPerSec * elapsedSeconds +
+      raidersDefeated * BALANCE_CONFIG.offline.goldPerRaider,
+  );
+  const rawAetherGain = Math.floor(
+    rates.aetherPerSec * elapsedSeconds +
+      raidersDefeated * BALANCE_CONFIG.offline.aetherPerRaider,
+  );
 
   const prevGold = Math.floor(state.resources.gold);
   const prevAether = Math.floor(state.resources.aether);
@@ -157,6 +167,8 @@ export function calculateOfflineProgress(
       gold: nextGold,
       aether: nextAether,
     },
+    storageCaps: caps,
+    grid: syncGridWithEntities(state.grid, updatedEntities),
     totalKills: state.totalKills + raidersDefeated,
     entities: updatedEntities,
     dailyQuests: updatedQuests,

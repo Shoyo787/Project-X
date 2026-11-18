@@ -11,6 +11,8 @@ export const ENEMY_CONFIGS: Record<EnemyId, EnemyConfig> = {
     scale: 0.85,
     primaryColor: '#6d8a4b',
     secondaryColor: '#9d7648',
+    minWave: 1,
+    spawnCadence: 1,
     // Optional external .glb path under public/models/, e.g. '/models/goblin_raider.glb'
     modelPath: undefined,
   },
@@ -24,6 +26,8 @@ export const ENEMY_CONFIGS: Record<EnemyId, EnemyConfig> = {
     scale: 1.05,
     primaryColor: '#8f4f3c',
     secondaryColor: '#b59264',
+    minWave: 2,
+    spawnCadence: 3,
     modelPath: undefined,
   },
   aether_wisp: {
@@ -36,6 +40,8 @@ export const ENEMY_CONFIGS: Record<EnemyId, EnemyConfig> = {
     scale: 0.9,
     primaryColor: '#4f9fb2',
     secondaryColor: '#c3e7ed',
+    minWave: 3,
+    spawnCadence: 4,
     modelPath: undefined,
   },
   iron_golem: {
@@ -48,6 +54,8 @@ export const ENEMY_CONFIGS: Record<EnemyId, EnemyConfig> = {
     scale: 1.35,
     primaryColor: '#5a626a',
     secondaryColor: '#c98842',
+    minWave: 4,
+    spawnCadence: 6,
     modelPath: undefined,
   },
   eclipse_boss: {
@@ -60,7 +68,11 @@ export const ENEMY_CONFIGS: Record<EnemyId, EnemyConfig> = {
     scale: 1.75,
     primaryColor: '#3d3540',
     secondaryColor: '#d4743b',
+    minWave: 5,
+    spawnCadence: 5,
     modelPath: undefined,
     isBoss: true,
   },
 };
+
+export const ENEMY_LIST: EnemyConfig[] = Object.values(ENEMY_CONFIGS);

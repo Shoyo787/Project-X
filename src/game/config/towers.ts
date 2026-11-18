@@ -4,6 +4,8 @@ export const TOWER_CONFIGS: Record<TowerId, TowerConfig> = {
   archer_spire: {
     id: 'archer_spire',
     name: 'Archer Spire',
+    shortName: 'Archer',
+    iconKey: 'crosshair',
     subtitle: 'Rapid Parabolic Volley',
     description:
       'Timber watchtower firing high-arcing fletched arrows at single targets across a generous radius.',
@@ -64,6 +66,8 @@ export const TOWER_CONFIGS: Record<TowerId, TowerConfig> = {
   frost_obelisk: {
     id: 'frost_obelisk',
     name: 'Frost Obelisk',
+    shortName: 'Frost',
+    iconKey: 'snowflake',
     subtitle: 'Aetheric Chill Ring',
     description:
       'Runed stone monolith that releases frost pulses, chilling and slowing raiders within its isometric ring.',
@@ -133,6 +137,8 @@ export const TOWER_CONFIGS: Record<TowerId, TowerConfig> = {
   cannon_bastion: {
     id: 'cannon_bastion',
     name: 'Cannon Bastion',
+    shortName: 'Cannon',
+    iconKey: 'flame',
     subtitle: 'Heavy Siege Splash',
     description:
       'Reinforced slate battlement lobbing iron cannonballs that shatter clustered raiders with ground-shaking blast impact.',

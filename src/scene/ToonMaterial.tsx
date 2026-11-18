@@ -1,30 +1,11 @@
 import React from 'react';
 import { Outlines, RoundedBox } from '@react-three/drei';
 import { ThreeEvent } from '@react-three/fiber';
-import * as THREE from 'three';
 import { GRID_COLS, GRID_ROWS } from '../game/config';
 
 export const INK_OUTLINE_COLOR = '#1e1916';
 
-let cachedGradientMap: THREE.DataTexture | null = null;
-
-export function getToonGradientMap(): THREE.DataTexture {
-  if (cachedGradientMap) return cachedGradientMap;
-
-  const data = new Uint8Array([
-    108, 108, 108, 255,
-    162, 162, 162, 255,
-    218, 218, 218, 255,
-    255, 255, 255, 255,
-  ]);
-  const texture = new THREE.DataTexture(data, 4, 1, THREE.RGBAFormat);
-  texture.minFilter = THREE.NearestFilter;
-  texture.magFilter = THREE.NearestFilter;
-  texture.generateMipmaps = false;
-  texture.needsUpdate = true;
-  cachedGradientMap = texture;
-  return texture;
-}
+export const NOOP_RAYCAST = (): void => {};
 
 export function gridToWorld(
   col: number,
@@ -43,12 +24,14 @@ export interface ToonMeshProps {
   outlineThickness?: number;
   outlineAngle?: number;
   showOutline?: boolean;
+  disableRaycast?: boolean;
   castShadow?: boolean;
   receiveShadow?: boolean;
   transparent?: boolean;
   opacity?: number;
   roughness?: number;
   metalness?: number;
+  flatShading?: boolean;
   emissive?: string;
   emissiveIntensity?: number;
   onClick?: (e: ThreeEvent<MouseEvent>) => void;
@@ -65,12 +48,14 @@ export const ToonMesh: React.FC<ToonMeshProps> = ({
   outlineThickness = 0.025,
   outlineAngle = 25,
   showOutline = true,
+  disableRaycast = false,
   castShadow = true,
   receiveShadow = true,
   transparent = false,
   opacity = 1,
   roughness = 0.85,
   metalness = 0.02,
+  flatShading = false,
   emissive = '#000000',
   emissiveIntensity = 0,
   onClick,
@@ -84,6 +69,7 @@ export const ToonMesh: React.FC<ToonMeshProps> = ({
       scale={scale}
       castShadow={castShadow}
       receiveShadow={receiveShadow}
+      raycast={disableRaycast ? NOOP_RAYCAST : undefined}
       onClick={onClick}
       onPointerOver={onPointerOver}
       onPointerOut={onPointerOut}
@@ -93,7 +79,7 @@ export const ToonMesh: React.FC<ToonMeshProps> = ({
         color={color}
         roughness={roughness}
         metalness={metalness}
-        flatShading={false}
+        flatShading={flatShading}
         transparent={transparent}
         opacity={opacity}
         emissive={emissive}
@@ -122,12 +108,14 @@ export interface ToonRoundedBoxProps {
   outlineThickness?: number;
   outlineAngle?: number;
   showOutline?: boolean;
+  disableRaycast?: boolean;
   castShadow?: boolean;
   receiveShadow?: boolean;
   transparent?: boolean;
   opacity?: number;
   roughness?: number;
   metalness?: number;
+  flatShading?: boolean;
   emissive?: string;
   emissiveIntensity?: number;
   onClick?: (e: ThreeEvent<MouseEvent>) => void;
@@ -137,8 +125,8 @@ export interface ToonRoundedBoxProps {
 
 export const ToonRoundedBox: React.FC<ToonRoundedBoxProps> = ({
   args,
-  radius = 0.08,
-  smoothness = 4,
+  radius = 0.02,
+  smoothness = 1,
   color,
   position,
   rotation,
@@ -146,12 +134,14 @@ export const ToonRoundedBox: React.FC<ToonRoundedBoxProps> = ({
   outlineThickness = 0.025,
   outlineAngle = 25,
   showOutline = true,
+  disableRaycast = false,
   castShadow = true,
   receiveShadow = true,
   transparent = false,
   opacity = 1,
   roughness = 0.85,
   metalness = 0.02,
+  flatShading = false,
   emissive = '#000000',
   emissiveIntensity = 0,
   onClick,
@@ -171,6 +161,7 @@ export const ToonRoundedBox: React.FC<ToonRoundedBoxProps> = ({
       scale={scale}
       castShadow={castShadow}
       receiveShadow={receiveShadow}
+      raycast={disableRaycast ? NOOP_RAYCAST : undefined}
       onClick={onClick}
       onPointerOver={onPointerOver}
       onPointerOut={onPointerOut}
@@ -179,7 +170,7 @@ export const ToonRoundedBox: React.FC<ToonRoundedBoxProps> = ({
         color={color}
         roughness={roughness}
         metalness={metalness}
-        flatShading={false}
+        flatShading={flatShading}
         transparent={transparent}
         opacity={opacity}
         emissive={emissive}

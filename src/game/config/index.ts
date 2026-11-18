@@ -1,5 +1,5 @@
-import { BUILDING_CONFIGS } from './buildings';
-import { TOWER_CONFIGS } from './towers';
+import { BUILDING_CONFIGS, BUILDING_LIST } from './buildings';
+import { TOWER_CONFIGS, TOWER_LIST } from './towers';
 import {
   BuildableId,
   BuildingConfig,
@@ -8,10 +8,16 @@ import {
   TowerId,
 } from '../../types/game';
 
+export * from './balancing';
 export * from './mapConfig';
 export { TOWER_CONFIGS, TOWER_LIST } from './towers';
 export { BUILDING_CONFIGS, BUILDING_LIST } from './buildings';
-export { ENEMY_CONFIGS } from './enemies';
+export { ENEMY_CONFIGS, ENEMY_LIST } from './enemies';
+
+export const ALL_BUILDABLES: (TowerConfig | BuildingConfig)[] = [
+  ...TOWER_LIST,
+  ...BUILDING_LIST,
+];
 
 export function isTowerId(id: BuildableId): id is TowerId {
   return id in TOWER_CONFIGS;

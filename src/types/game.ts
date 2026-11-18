@@ -8,13 +8,45 @@ export type BuildingId = 'quarry_mine' | 'aether_conduit' | 'storage_vault';
 
 export type BuildableId = TowerId | BuildingId;
 
+export type BuildableIconKey =
+  | 'crosshair'
+  | 'snowflake'
+  | 'flame'
+  | 'pickaxe'
+  | 'sparkles'
+  | 'warehouse';
+
 export type TargetingMode = 'first' | 'strongest' | 'closest';
 
-export type TileType = 'grass' | 'path' | 'keep';
+export type TileType = 'grass' | 'path' | 'spawn' | 'core' | 'locked';
 
 export interface GridCoord {
   col: number;
   row: number;
+}
+
+export interface GridTile {
+  x: number;
+  z: number;
+  type: TileType;
+  entityId: string | null;
+}
+
+export interface StorageCaps {
+  maxGold: number;
+  maxAether: number;
+}
+
+export interface ProductionRates {
+  goldPerSec: number;
+  aetherPerSec: number;
+}
+
+export interface WaveProgressState {
+  enemiesRemainingInQueue: number;
+  activeEnemies: number;
+  totalEnemiesInWave: number;
+  interWaveDelaySec: number;
 }
 
 export interface TowerLevelStats {
@@ -33,6 +65,8 @@ export interface TowerLevelStats {
 export interface TowerConfig {
   id: TowerId;
   name: string;
+  shortName: string;
+  iconKey: BuildableIconKey;
   subtitle: string;
   description: string;
   category: 'tower';
@@ -57,6 +91,8 @@ export interface BuildingLevelStats {
 export interface BuildingConfig {
   id: BuildingId;
   name: string;
+  shortName: string;
+  iconKey: BuildableIconKey;
   subtitle: string;
   description: string;
   category: 'building';
@@ -83,6 +119,8 @@ export interface EnemyConfig {
   scale: number;
   primaryColor: string;
   secondaryColor: string;
+  minWave: number;
+  spawnCadence: number;
   modelPath?: string;
   isBoss?: boolean;
 }
@@ -119,9 +157,12 @@ export interface GameState {
     gold: number;
     aether: number;
   };
+  storageCaps: StorageCaps;
+  grid: GridTile[];
   keepHp: number;
   keepMaxHp: number;
   wave: number;
+  waveProgress: WaveProgressState;
   totalKills: number;
   entities: PlacedEntity[];
   dailyQuests: DailyQuest[];

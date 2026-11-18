@@ -1,13 +1,17 @@
-import { DailyQuest, GameState, GridCoord, PlacedEntity, TileType } from '../../types/game';
+import {
+  DailyQuest,
+  GameState,
+  GridCoord,
+  GridTile,
+  PlacedEntity,
+  StorageCaps,
+  TileType,
+} from '../../types/game';
+import { BALANCE_CONFIG, getBuildingStatsAtLevel } from './balancing';
+import { BUILDING_CONFIGS } from './buildings';
 
 export const GRID_COLS = 12;
 export const GRID_ROWS = 10;
-
-export const BASE_STORAGE_GOLD = 600;
-export const BASE_STORAGE_AETHER = 300;
-
-export const BASE_KEEP_GOLD_PER_SEC = 1.5;
-export const BASE_KEEP_AETHER_PER_SEC = 0.6;
 
 export const KEEP_COORD: GridCoord = { col: 10, row: 5 };
 
@@ -38,14 +42,23 @@ export const PATH_WAYPOINTS: GridCoord[] = [
   { col: 10, row: 5 },
 ];
 
+export const SPAWN_COORD: GridCoord = PATH_WAYPOINTS[0];
+
 const PATH_KEY_SET = new Set(PATH_WAYPOINTS.map((pt) => `${pt.col},${pt.row}`));
+export const LOCKED_TILE_COORDS = new Set<string>();
 
 export function getTileType(col: number, row: number): TileType {
+  if (col === SPAWN_COORD.col && row === SPAWN_COORD.row) {
+    return 'spawn';
+  }
   if (col === KEEP_COORD.col && row === KEEP_COORD.row) {
-    return 'keep';
+    return 'core';
   }
   if (PATH_KEY_SET.has(`${col},${row}`)) {
     return 'path';
+  }
+  if (LOCKED_TILE_COORDS.has(`${col},${row}`)) {
+    return 'locked';
   }
   return 'grass';
 }
@@ -98,6 +111,63 @@ export function createStarterEntities(): PlacedEntity[] {
   ];
 }
 
+export function createInitialGridTiles(entities: readonly PlacedEntity[]): GridTile[] {
+  const entityMap = new Map<string, string>();
+  for (const entity of entities) {
+    entityMap.set(`${entity.col},${entity.row}`, entity.id);
+  }
+
+  const grid: GridTile[] = [];
+  for (let x = 0; x < GRID_COLS; x++) {
+    for (let z = 0; z < GRID_ROWS; z++) {
+      grid.push({
+        x,
+        z,
+        type: getTileType(x, z),
+        entityId: entityMap.get(`${x},${z}`) ?? null,
+      });
+    }
+  }
+  return grid;
+}
+
+export function syncGridWithEntities(
+  grid: readonly GridTile[],
+  entities: readonly PlacedEntity[],
+): GridTile[] {
+  if (grid.length !== GRID_COLS * GRID_ROWS) {
+    return createInitialGridTiles(entities);
+  }
+
+  const entityMap = new Map<string, string>();
+  for (const entity of entities) {
+    entityMap.set(`${entity.col},${entity.row}`, entity.id);
+  }
+
+  return grid.map((tile) => ({
+    x: tile.x,
+    z: tile.z,
+    type: tile.type === 'locked' ? 'locked' : getTileType(tile.x, tile.z),
+    entityId: entityMap.get(`${tile.x},${tile.z}`) ?? null,
+  }));
+}
+
+function computeInitialStorageCaps(entities: readonly PlacedEntity[]): StorageCaps {
+  let maxGold = BALANCE_CONFIG.baseStorageGold;
+  let maxAether = BALANCE_CONFIG.baseStorageAether;
+
+  for (const entity of entities) {
+    if (entity.configId in BUILDING_CONFIGS) {
+      const cfg = BUILDING_CONFIGS[entity.configId as keyof typeof BUILDING_CONFIGS];
+      const stats = getBuildingStatsAtLevel(cfg, entity.level);
+      maxGold += stats.goldCapBonus;
+      maxAether += stats.aetherCapBonus;
+    }
+  }
+
+  return { maxGold, maxAether };
+}
+
 export function createDefaultDailyQuests(): DailyQuest[] {
   return [
     {
@@ -137,21 +207,28 @@ export function createDefaultDailyQuests(): DailyQuest[] {
 }
 
 export function createInitialGameState(nowMs: number = Date.now()): GameState {
-  // Schedule the daily Eclipse Siege Boss countdown 6 hours ahead by default
-  const sixHoursMs = 6 * 60 * 60 * 1000;
+  const entities = createStarterEntities();
   return {
-    version: 1,
+    version: BALANCE_CONFIG.saveVersion,
     resources: {
-      gold: 340,
-      aether: 140,
+      gold: BALANCE_CONFIG.initialResources.gold,
+      aether: BALANCE_CONFIG.initialResources.aether,
     },
-    keepHp: 20,
-    keepMaxHp: 20,
+    storageCaps: computeInitialStorageCaps(entities),
+    grid: createInitialGridTiles(entities),
+    keepHp: BALANCE_CONFIG.initialKeepHp,
+    keepMaxHp: BALANCE_CONFIG.initialKeepHp,
     wave: 1,
+    waveProgress: {
+      enemiesRemainingInQueue: 0,
+      activeEnemies: 0,
+      totalEnemiesInWave: 0,
+      interWaveDelaySec: 0,
+    },
     totalKills: 0,
-    entities: createStarterEntities(),
+    entities,
     dailyQuests: createDefaultDailyQuests(),
-    eclipseBossNextTimestamp: nowMs + sixHoursMs,
+    eclipseBossNextTimestamp: nowMs + BALANCE_CONFIG.bossIntervalMs,
     lastActiveTimestamp: nowMs,
   };
 }

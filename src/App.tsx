@@ -1,10 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { BuildDock } from './components/BuildDock';
 import { EntityInspector } from './components/EntityInspector';
-import { QuestSidebar } from './components/QuestSidebar';
 import { StewardReportModal } from './components/StewardReportModal';
 import { TopBar } from './components/TopBar';
-import { BUILDING_LIST, TOWER_LIST, isValidGridCoord } from './game/config';
+import { ALL_BUILDABLES, isValidGridCoord } from './game/config';
 import { GameEngine } from './game/engine/GameEngine';
 import { GameCanvas3D } from './scene/GameCanvas3D';
 import { BuildableId, DailyQuest, OfflineReport, PlacedEntity } from './types/game';
@@ -77,6 +76,12 @@ export function App() {
     }
   }, []);
 
+  useEffect(() => {
+    const engine = engineRef.current;
+    if (!engine) return;
+    return engine.on('stateChanged', syncHud);
+  }, [syncHud]);
+
   const showFeedback = useCallback((msg: string) => {
     setFeedbackMessage(msg);
   }, []);
@@ -87,9 +92,7 @@ export function App() {
     return () => window.clearTimeout(timer);
   }, [feedbackMessage]);
 
-  // Keyboard shortcuts (1-6 build hotkeys, Esc cancel, Space pause)
   useEffect(() => {
-    const buildItems = [...TOWER_LIST, ...BUILDING_LIST];
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         setSelectedBuildId(null);
@@ -99,12 +102,11 @@ export function App() {
       if (e.key === ' ') {
         e.preventDefault();
         engineRef.current?.togglePause();
-        syncHud();
         return;
       }
       const num = Number(e.key);
-      if (num >= 1 && num <= buildItems.length) {
-        const target = buildItems[num - 1];
+      if (num >= 1 && num <= ALL_BUILDABLES.length) {
+        const target = ALL_BUILDABLES[num - 1];
         if (target) {
           setSelectedEntityId(null);
           setSelectedBuildId((prev) => (prev === target.id ? null : target.id));
@@ -114,7 +116,7 @@ export function App() {
 
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [syncHud]);
+  }, []);
 
   const handleTileClick = useCallback(
     (col: number, row: number) => {
@@ -137,14 +139,13 @@ export function App() {
         } else if (result.error) {
           showFeedback(result.error);
         }
-        syncHud();
         return;
       }
 
       const existing = engine.getEntityAt(col, row);
       setSelectedEntityId(existing ? existing.id : null);
     },
-    [selectedBuildId, showFeedback, syncHud],
+    [selectedBuildId, showFeedback],
   );
 
   const selectedEntity =
@@ -163,7 +164,6 @@ export function App() {
         selectedEntityId={selectedEntityId}
         onTileClick={handleTileClick}
         onClearSelection={() => setSelectedEntityId(null)}
-        onHudSync={syncHud}
       />
 
       <div className="pointer-events-none fixed inset-0 z-10 flex flex-col justify-between gap-2 p-2.5 sm:p-4">
@@ -177,49 +177,39 @@ export function App() {
           wave={hud.wave}
           keepHp={hud.keepHp}
           keepMaxHp={hud.keepMaxHp}
+          totalDps={hud.totalDps}
+          totalKills={hud.totalKills}
+          entityCount={hud.entities.length}
           bossCountdownMs={hud.bossCountdownMs}
+          quests={hud.dailyQuests}
           speedMultiplier={hud.speedMultiplier}
           isPaused={hud.isPaused}
           isMuted={hud.isMuted}
+          onClaimQuest={(questId) => {
+            engineRef.current?.claimQuest(questId);
+          }}
           onSummonBoss={() => {
             engineRef.current?.summonEclipseBoss();
-            syncHud();
           }}
           onDevSpeedup={() => {
             engineRef.current?.devSpeedupOneMinute();
-            syncHud();
           }}
           onTestOffline={() => {
             engineRef.current?.triggerOfflineDemo(30);
-            syncHud();
           }}
           onToggleSpeed={() => {
             const next = hud.speedMultiplier === 1 ? 2 : 1;
             engineRef.current?.setSpeedMultiplier(next);
-            syncHud();
           }}
           onTogglePause={() => {
             engineRef.current?.togglePause();
-            syncHud();
           }}
           onToggleMute={() => {
-            engineRef.current?.sound.toggleMute();
-            syncHud();
+            engineRef.current?.toggleMute();
           }}
         />
 
-        <div className="pointer-events-none flex min-h-0 flex-1 items-start justify-between gap-3">
-          <QuestSidebar
-            quests={hud.dailyQuests}
-            totalDps={hud.totalDps}
-            totalKills={hud.totalKills}
-            entityCount={hud.entities.length}
-            onClaimQuest={(questId) => {
-              engineRef.current?.claimQuest(questId);
-              syncHud();
-            }}
-          />
-
+        <div className="pointer-events-none flex min-h-0 flex-1 items-start justify-end">
           {selectedEntity && (
             <EntityInspector
               entity={selectedEntity}
@@ -231,20 +221,16 @@ export function App() {
                 if (res && !res.ok && res.error) {
                   showFeedback(res.error);
                 }
-                syncHud();
               }}
               onCycleTargeting={(entityId) => {
                 engineRef.current?.cycleTargetingMode(entityId);
-                syncHud();
               }}
               onDemolish={(entityId) => {
                 engineRef.current?.demolishEntity(entityId);
                 setSelectedEntityId(null);
-                syncHud();
               }}
               onDevSpeedup={() => {
                 engineRef.current?.devSpeedupOneMinute();
-                syncHud();
               }}
               onClose={() => setSelectedEntityId(null)}
             />
@@ -269,7 +255,6 @@ export function App() {
           report={hud.offlineReport}
           onDismiss={() => {
             engineRef.current?.dismissOfflineReport();
-            syncHud();
           }}
         />
       )}
