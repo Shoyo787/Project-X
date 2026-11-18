@@ -1,0 +1,63 @@
+@import "tailwindcss";
+
+@theme {
+  --font-display: "Cinzel", Georgia, serif;
+  --font-sans: "Plus Jakarta Sans", system-ui, -apple-system, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+
+  --color-parchment: #f6efe2;
+  --color-parchment-deep: #eadcc4;
+  --color-ink: #2b2623;
+  --color-bronze: #8c6d46;
+  --color-sage: #7c9a6e;
+  --color-sandstone: #d8c8a8;
+  --color-slate-cliff: #5a626a;
+  --color-terracotta: #c86446;
+  --color-sunlight: #f4e4c1;
+}
+
+@layer base {
+  body {
+    font-family: var(--font-sans);
+    color: #2b2623;
+    background-color: #dfeaf0;
+    margin: 0;
+    padding: 0;
+  }
+}
+
+.parchment-panel {
+  background: linear-gradient(180deg, rgba(250, 245, 234, 0.96) 0%, rgba(240, 229, 208, 0.96) 100%);
+  border: 2px solid #2b2623;
+  box-shadow:
+    0 4px 0 #8c6d46,
+    0 10px 24px rgba(43, 38, 35, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.7);
+}
+
+.parchment-card {
+  background: linear-gradient(180deg, #fcf8ef 0%, #f1e5cf 100%);
+  border: 1.5px solid #2b2623;
+  box-shadow: 0 2px 0 #8c6d46;
+}
+
+.ink-button {
+  border: 1.5px solid #2b2623;
+  box-shadow: 0 2px 0 #2b2623;
+  transition: transform 100ms ease, box-shadow 100ms ease, background-color 120ms ease;
+}
+
+.ink-button:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 3px 0 #2b2623;
+}
+
+.ink-button:active:not(:disabled) {
+  transform: translateY(1px);
+  box-shadow: 0 1px 0 #2b2623;
+}
+
+.ink-button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
